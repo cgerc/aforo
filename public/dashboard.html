@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Tallerista</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Iconos -->
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+</head>
+<body class="bg-slate-100 font-sans">
+
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-zinc-950 text-white p-6 flex flex-col justify-between">
+            <div>
+                <h2 class="text-xl font-black text-amber-500 mb-8 tracking-wider">PORTAL TALLERISTA</h2>
+                <nav class="space-y-4">
+                    <a href="#" class="block bg-zinc-800 p-3 rounded-lg text-amber-500 font-semibold">📈 Panel de Control</a>
+                    <a href="index.html" class="block text-gray-400 hover:text-white p-3 transition">🏠 Volver a la Tienda</a>
+                </nav>
+            </div>
+            <div class="border-t border-zinc-800 pt-4 text-xs text-gray-500">
+                Sesión: tallerista@usuario.com
+            </div>
+        </aside>
+
+        <!-- Contenido principal -->
+        <main class="flex-1 overflow-y-auto p-8">
+            <header class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Dashboard de Gestión</h1>
+                    <p class="text-gray-500">Monitorea tus ventas, aforos de 40 personas y espacios en tiempo real.</p>
+                </div>
+            </header>
+
+            <!-- CONTENEDOR DE INDICADORES (KPIs) -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <!-- Ventas Totales -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <p class="text-sm font-medium text-gray-500 uppercase">Ingresos Totales</p>
+                    <p class="text-2xl font-bold text-gray-900 mt-2">$240,000 CLP</p>
+                    <span class="text-green-500 text-xs font-semibold">↑ 12% este mes</span>
+                </div>
+
+                <!-- Nivel de Ocupación -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <p class="text-sm font-medium text-gray-500 uppercase">Nivel de Ocupación</p>
+                    <p class="text-2xl font-bold text-amber-600 mt-2">70%</p>
+                    <span class="text-gray-500 text-xs">Promedio de 28/40 entradas por evento</span>
+                </div>
+
+                <!-- Encuesta de Satisfacción -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <p class="text-sm font-medium text-gray-500 uppercase">Encuesta Satisfacción</p>
+                    <p class="text-2xl font-bold text-indigo-600 mt-2">4.8 / 5.0</p>
+                    <span class="text-green-500 text-xs font-semibold">Basado en 45 opiniones</span>
+                </div>
+
+                <!-- Disponibilidad de Espacios Convenio -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <p class="text-sm font-medium text-gray-500 uppercase">Locales en Convenio</p>
+                    <p class="text-2xl font-bold text-green-600 mt-2">5 Libres</p>
+                    <span class="text-gray-500 text-xs">Espacios listos para arrendar</span>
+                </div>
+            </div>
+
+            <!-- DETALLE DE EVENTOS ACTIVOS -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">Estado de tus Publicaciones</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-gray-200 text-sm text-gray-400 font-semibold">
+                                <th class="pb-3">Taller / Obra</th>
+                                <th class="pb-3">Espacio Reservado</th>
+                                <th class="pb-3 text-center">Entradas Vendidas</th>
+                                <th class="pb-3">Progreso Aforo</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm text-gray-600 divide-y divide-gray-100">
+                            <tr>
+                                <td class="py-4 font-semibold text-gray-900">Taller de Teatro Comunitario</td>
+                                <td class="py-4">Espacio Creativo Ñuñoa</td>
+                                <td class="py-4 text-center font-bold">28 / 40</td>
+                                <td class="py-4">
+                                    <div class="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                                        <div class="bg-amber-500 h-full w-[70%]"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tu  ticketera cercana - Aforo.cl </title>
+    <!-- Tailwind CSS para diseño moderno -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet para el Mapa -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        .carousel-container::-webkit-scrollbar { display: none; }
+        .carousel-container { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+    <!-- NAVBAR ESTILO PASSLINE -->
+    <nav class="bg-zinc-950 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-[1000]">
+        <div class="flex items-center gap-8">
+            <span class="text-2xl font-black tracking-wider text-amber-500">AFORO.CL</span>
+            <div class="hidden md:flex bg-zinc-800 rounded-full px-4 py-2 w-80 items-center">
+                <input type="text" placeholder="Buscar eventos, talleres..." class="bg-transparent border-none outline-none text-sm w-full text-gray-300 placeholder-gray-500">
+            </div>
+        </div>
+        <div class="flex items-center gap-4 text-sm font-semibold">
+            <a href="arriendos.html" class="hover:text-amber-500 transition">Arriendo espacios</a>
+            <a href="dashboard.html" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 px-4 py-2 rounded-full transition">¿Eres Tallerista?</a>
+        </div>
+    </nav>
+
+    <!-- BANNER HERO PRINCIPAL -->
+    <header class="bg-zinc-900 text-white py-16 px-8 text-center bg-gradient-to-r from-purple-900 via-zinc-900 to-amber-900">
+        <h1 class="text-4xl md:text-6xl font-extrabold mb-4">¡Aquí tus eventos y talleres!</h1>
+        <p class="text-lg text-gray-300">Encuentra los eventos culturales más cercanos en tu sector.</p>
+    </header>
+
+    <!-- SECCIÓN DE CARRUSELES -->
+    <main class="max-w-7xl mx-auto px-6 py-10">
+        <h2 class="text-2xl font-bold mb-6 flex items-center gap-2">🔥 Talleres Destacados <span class="text-sm bg-red-500 text-white px-2 py-0.5 rounded">Máx 40 cupos</span></h2>
+        
+        <!-- Carrusel con scroll horizontal -->
+        <div id="carrusel-eventos" class="carousel-container flex gap-6 overflow-x-auto scroll-smooth pb-4">
+            <!-- Las tarjetas de eventos se inyectarán dinámicamente aquí desde app.js -->
+        </div>
+    </main>
+
+    <!-- SECCIÓN DEL MAPA GRANDE Y FILTROS -->
+    <section class="bg-zinc-900 text-white py-12 px-6">
+        <div class="max-w-7xl mx-auto">
+            <h2 class="text-3xl font-bold mb-6 text-center">Busca por fecha o cercania</h2>
+            
+            <!-- Barra de Filtros -->
+            <div class="bg-zinc-800 p-4 rounded-xl flex flex-col md:flex-row gap-4 mb-6 justify-center items-center shadow-lg">
+                <div class="w-full md:w-1/3">
+                    <label class="block text-xs text-gray-400 font-bold uppercase mb-1">Comuna</label>
+                    <select id="filtro-comuna" class="w-full bg-zinc-700 border-none rounded-lg p-2.5 text-white outline-none">
+                        <option value="todos">Todas las comunas</option>
+                        <option value="ñuñoa">Ñuñoa</option>
+                        <option value="providencia">Providencia</option>
+                        <option value="santiago">Santiago Centro</option>
+                    </select>
+                </div>
+                <div class="w-full md:w-1/3">
+                    <label class="block text-xs text-gray-400 font-bold uppercase mb-1">Fecha del Evento</label>
+                    <input type="date" id="filtro-fecha" class="w-full bg-zinc-700 border-none rounded-lg p-2 text-white outline-none">
+                </div>
+                <div class="w-full md:w-auto pt-4 md:pt-0">
+                    <button onclick="filtrarMapa()" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold px-8 py-3 rounded-lg transition w-full">Buscar en Mapa</button>
+                </div>
+            </div>
+
+            <!-- Contenedor del Mapa -->
+            <div id="mapa" class="w-full h-[550px] rounded-xl overflow-hidden border-4 border-zinc-800 shadow-2xl"></div>
+        </div>
+    </section>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

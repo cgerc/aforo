@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Compra Exitosa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-8 flex flex-col items-center">
+    <div class="max-w-md w-full bg-white p-6 rounded-xl shadow border text-center space-y-4">
+        <h1 class="text-2xl font-bold text-green-600">¡Compra Procesada con Éxito!</h1>
+        <p class="text-sm text-gray-600">Tu código QR único de acceso ha sido emitido y se ha enviado un recordatorio a tu WhatsApp.</p>
+        <div class="p-4 bg-zinc-100 rounded-lg flex flex-col items-center">
+            <img id="img-qr" class="w-48 h-48 border bg-white" alt="Tu Entrada QR">
+        </div>
+        <button onclick="window.print()" class="w-full bg-zinc-900 text-white py-2 rounded-lg font-bold">Descargar Entrada PDF</button>
+    </div>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const ticketId = params.get('ticketId');
+        
+        async function obtenerQR() {
+            const res = await fetch('/api/generar-qr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticketId })
+            });
+            const data = await res.json();
+            if(data.qr) document.getElementById('img-qr').src = data.qr;
+        }
+        obtenerQR();
+    </script>
+</body>
+</html>

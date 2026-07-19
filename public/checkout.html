@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout - Procesar Compra de Entradas</title>
+    <!-- Tailwind CSS para el diseño visual -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SDK Oficial de Mercado Pago v2 -->
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
+</head>
+<body class="bg-gray-100 p-8 font-sans text-gray-900">
+
+    <div class="max-w-4xl mx-auto bg-white p-6 shadow-md rounded-xl space-y-8">
+        <!-- Tabla de Resumen de la Obra o Taller -->
+        <div>
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Resumen del Evento Seleccionado</h2>
+            <table class="w-full text-left border-collapse">
+                <thead class="border-b border-gray-200 bg-gray-50 text-sm text-gray-500">
+                    <tr>
+                        <th class="py-3 px-2">Evento</th>
+                        <th class="py-3 px-2">Producto</th>
+                        <th class="py-3 px-2">Precio</th>
+                        <th class="py-3 px-2 text-center">Cantidad</th>
+                        <th class="py-3 px-2">Sub Total</th>
+                    </tr>
+                </thead>
+                <tbody id="resumen-body" class="text-sm divide-y divide-gray-100">
+                    <!-- Los datos del localStorage se inyectarán aquí -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Barra del Temporizador de Compra Estilo Passline -->
+        <div class="bg-orange-50 border border-orange-200 text-orange-700 p-4 text-center rounded-lg font-bold shadow-sm">
+            <span id="timer" class="text-2xl font-black block text-orange-600">10:00</span>
+            <p class="text-xs mt-1">Tienes 10 minutos para realizar la compra antes de liberar los cupos del aforo.</p>
+        </div>
+
+        <!-- Formulario de Selección de Fecha y Datos del Comprador -->
+        <div class="space-y-6">
+            <h2 class="text-xl font-bold text-gray-800 border-b pb-2">Datos del Comprador</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Selector de Fecha / Calendario Dinámico -->
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Selecciona la Fecha de Asistencia:</label>
+                    <input type="date" id="calendario-funcion" class="border p-2.5 w-full rounded-lg bg-gray-50 outline-none focus:border-amber-500" required>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Nombre y Apellido:</label>
+                    <input type="text" id="comprador-nombre" placeholder="Nombre y apellido" class="border p-2.5 w-full rounded-lg outline-none focus:border-amber-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Celular:</label>
+                    <input type="tel" id="comprador-whatsapp" placeholder="Ej: 999991111" class="border p-2.5 w-full rounded-lg outline-none focus:border-amber-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Email:</label>
+                    <input type="email" id="comprador-email" placeholder="Ingresa tu correo electrónico" class="border p-2.5 w-full rounded-lg outline-none focus:border-amber-500" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Repetir Email:</label>
+                    <input type="email" id="comprador-email-confirm" placeholder="Repetir email" class="border p-2.5 w-full rounded-lg outline-none focus:border-amber-500" required>
+                </div>
+            </div>
+        </div>
+
+        <!-- Botón de Envío y Pasarela Mercado Pago -->
+        <div class="border-t pt-6 flex flex-col md:flex-row justify-between items-center gap-4 bg-gray-50 p-4 rounded-xl">
+            <div>
+                <span class="text-sm text-gray-500 block uppercase font-bold">Total a Pagar</span>
+                <span id="txt-total-checkout" class="text-2xl font-black text-gray-900">$0 CLP</span>
+            </div>
+            <button onclick="procesarPagoMercadoPago()" class="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3.5 rounded-xl shadow transition duration-200">
+                Confirmar y Pagar con Mercado Pago
+            </button>
+        </div>
+    </div>
+
+    <!-- LÓGICA DE PROGRAMACIÓN JAVASCRIPT -->
+    <script>
+        // Inicialización del SDK de Mercado Pago con clave pública de prueba
+        const mp = new MercadoPago('TU_PUBLIC_KEY_DE_PRUEBA', { locale: 'es-CL' });
+
+        // Recuperar el objeto guardado en la memoria interna del navegador (localStorage)
+        const eventoData = JSON.parse(localStorage.getItem('evento_seleccionado'));
+        const body = document.getElementById('resumen-body');
+        
+        // Bloque de control: si no hay evento seleccionado, regresa a la tienda
+        if (!eventoData) {
+            window.location.href = 'index.html';
+        } else {
+            // Renderizar la fila de la tabla con los datos reales extraídos
+            const precioBase = eventoData.categorias[0].precio;
+            body.innerHTML = `
+                <tr class="hover:bg-gray-50/50 transition">
+                    <td class="py-4 px-2">
+                        <p class="font-bold text-gray-900">${eventoData.titulo}</p>
+                        <p class="text-xs text-gray-500">${eventoData.anfitrion}</p>
+                    </td>
+                    <td class="py-4 px-2 text-gray-600">Entrada ${eventoData.categorias[0].nombre}</td>
+                    <td class="py-4 px-2 text-gray-600">$${precioBase.toLocaleString('es-CL')}</td>
+                    <td class="py-4 px-2 text-center font-semibold text-gray-700">1</td>
+                    <td class="py-4 px-2 font-bold text-gray-900">$${precioBase.toLocaleString('es-CL')}</td>
+                </tr>
+            `;
+            document.getElementById('txt-total-checkout').innerText = `$${precioBase.toLocaleString('es-CL')} CLP`;
+        }
+
+        // CONTROL DEL CALENDARIO DINÁMICO (Establecer fecha mínima actual)
+        const calendario = document.getElementById('calendario-funcion');
+        const hoy = new Date();
+        const yyyy = hoy.getFullYear();
+        const mm = String(hoy.getMonth() + 1).padStart(2, '0');
+        const dd = String(hoy.getDate()).padStart(2, '0');
+        
+        // El formato requerido por el input type="date" es YYYY-MM-DD
+        const fechaMinima = `${yyyy}-${mm}-${dd}`;
+        calendario.min = fechaMinima;
+        calendario.value = fechaMinima; // Asigna por defecto el día de hoy
+
+        // LÓGICA DEL CRONÓMETRO DE RESTRICCIÓN (10 Minutos)
+        let tiempoRestante = 600; // 600 segundos = 10 minutos
+        const timerSpan = document.getElementById('timer');
+        
+        const cuentaRegresiva = setInterval(() => {
+            let minutos = Math.floor(tiempoRestante / 60);
+            let segundos = tiempoRestante % 60;
+            
+            // Agrega un cero a la izquierda si los segundos son menores a 10
+            timerSpan.textContent = `${minutos}:${segundos < 10 ? '0' : ''}${segundos}`;
+            tiempoRestante--;
+            
+            if (tiempoRestante < 0) {
+                clearInterval(cuentaRegresiva);
+                alert("El tiempo de reserva de tus entradas ha expirado. Volverás al inicio.");
+                window.location.href = 'index.html';
+            }
+        }, 1000);
+
+        // LOGICA DE INTEGRACIÓN CON EL BACKEND DE MERCADO PAGO
+        async function procesarPagoMercadoPago() {
+            const nombre = document.getElementById('comprador-nombre').value;
+            const email = document.getElementById('comprador-email').value;
+            const emailConfirm = document.getElementById('comprador-email-confirm').value;
+            const whatsapp = document.getElementById('comprador-whatsapp').value;
+            const fechaElegida = calendario.value;
+
+            // Validaciones básicas de campos vacíos e igualdad de correos
+            if (!nombre || !email || !whatsapp || !fechaElegida) {
+                return alert("Por favor, complete todos los campos del formulario.");
+            }
+            if (email !== emailConfirm) {
+                return alert("Los correos electrónicos ingresados no coinciden.");
+            }
+
+            const datosComprador = { nombre, email, whatsapp, fechaAsistencia: fechaElegida };
+            
+            // Simulación de la estructura de entradas seleccionadas (1 de la categoría principal)
+            const entradasSeleccionadas = {};
+            entradasSeleccionadas[eventoData.categorias[0].nombre] = 1;
+
+            // Petición HTTP POST al servidor unificado Express
+            const response = await fetch('/api/crear-preferance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    eventoId: eventoData.id,
+                    datosComprador,
+                    entradasSeleccionadas
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.id) {
+                // Abre el portal de cobro seguro de Mercado Pago usando el ID de preferencia obtenido
+                mp.checkout({
+                    preference: { id: data.id },
+                    autoOpen: true
+                });
+            } else {
+                alert("Error al conectar con la pasarela de pagos: " + (data.error || "Intente más tarde."));
+            }
+        }
+    </script>
+</body>
+</html>

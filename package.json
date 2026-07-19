@@ -1,13 +1,15 @@
 {
-  "name": "ticketera-local",
+  "name": "ticketera-local-completa",
   "version": "1.0.0",
-  "description": "Ticketera con mapa integrado y Mercado Pago",
+  "description": "Ticketera interactiva con Mercado Pago, QR y Validador",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "mercadopago": "^2.0.11"
+    "mercadopago": "^2.0.11",
+    "node-cron": "^3.0.3",
+    "qrcode": "^1.5.3"
   }
 }

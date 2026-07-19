@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escanear Entrada QR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body class="bg-zinc-900 text-white min-h-screen flex flex-col justify-between p-6">
+
+    <header class="text-center py-2 border-b border-zinc-800">
+        <h1 class="text-lg font-black text-amber-500">VALIDADOR PORTÁTIL</h1>
+    </header>
+
+    <main class="max-w-md mx-auto w-full space-y-6">
+        <div id="reader" class="w-full bg-zinc-950 rounded-xl overflow-hidden border border-zinc-700"></div>
+        <div id="feedback" class="hidden p-4 rounded-lg text-center font-bold"></div>
+    </main>
+
+    <footer class="text-center text-xs text-gray-500"><a href="dashboard.html" class="underline text-amber-500">Volver al Panel</a></footer>
+
+    <script>
+        const scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+        
+        async function onScanSuccess(decodedText) {
+            scanner.clear();
+            const res = await fetch('/api/validar-ticket', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticketId: decodedText })
+            });
+            const data = await res.json();
+            const box = document.getElementById('feedback');
+            box.classList.remove('hidden');
+            
+            if(data.valido) {
+                box.className = "p-4 rounded-lg text-center font-bold bg-green-900 text-green-200 border border-green-600";
+                box.innerHTML = `${data.mensaje}<br><span class='text-xs font-normal'>Asistente: ${data.comprador}</span>`;
+            } else {
+                box.className = "p-4 rounded-lg text-center font-bold bg-red-900 text-red-200 border border-red-600";
+                box.innerText = data.mensaje;
+            }
+            setTimeout(() => { location.reload(); }, 3500);
+        }
+        scanner.render(onScanSuccess);
+    </script>
+</body>
+</html>

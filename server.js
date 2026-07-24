@@ -1,160 +1,97 @@
 const express = require('express');
-const { MercadoPagoConfig, Preference } = require('mercadopago');
-const QRCode = require('qrcode');
-const cron = require('node-cron');
-
 const app = express();
-app.use(express.json());
-app.use(express.static('public')); 
 
-// Configura tu Access Token de prueba de Mercado Pago aquí
-const client = new MercadoPagoConfig({ accessToken: 'PROD_ACCESS_TOKEN_O_TEST_TOKEN' });
+// Configuración para permitir imágenes y archivos de hasta 50MB
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.static('public'));
 
-// Base de datos simulada global
+// BASE DE DATOS INICIAL EN MEMORIA RAM
 let eventos = [
   {
     id: 1,
-    titulo: "Taller de Teatro Comunitario",
-    anfitrion: "Espacio Creativo Ñuñoa",
-    fecha: "2026-07-26T12:30:00", 
-    ticketsMax: 40,
+    titulo: "Taller de Manejo de la Ansiedad",
+    descripcion: "Un espacio práctico donde aprenderás técnicas de regulación emocional y mindfulness.",
+    fecha: "2026-07-31T20:00",
+    categoria: "Salud mental",
+    comuna: "providencia",
+    direccion: "Av. Santa Isabel 1240",
+    lat: -33.435,
+    lng: -70.620,
+    imagen: "https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=800",
     ticketsVendidos: 0,
-    lat: -33.456,
-    lng: -70.603,
-    comuna: "ñuñoa",
-    imagen: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=500&auto=format&fit=crop&q=60",
-    categorias: [
-      { nombre: "Normal", precio: 30000 },
-      { nombre: "Niño", precio: 15000 },
-      { nombre: "Bebé", precio: 0 },
-      { nombre: "Adulto mayor", precio: 20000 }
-    ]
+    ticketsMax: 40,
+    categorias: [{ nombre: "General", precio: 15000, cupos: 40 }]
   }
 ];
 
-let comprasRegistradas = [];
-
-// API: Obtener todos los eventos
+// Obtener todos los eventos
 app.get('/api/eventos', (req, res) => {
   res.json(eventos);
 });
 
-// API: Modificar categorías desde el panel del tallerista
-app.post('/api/eventos/actualizar-categorias', (req, res) => {
-  const { eventoId, nuevasCategorias } = req.body;
-  const evento = eventos.find(e => e.id === parseInt(eventoId));
-  if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
-  
-  evento.categorias = nuevasCategorias;
-  res.json({ mensaje: "Categorías guardadas correctamente", evento });
-});
-
-// API: Integración de Mercado Pago con validación de cupos (Máx 40)
-app.post('/api/crear-preferencia', async (req, res) => {
-  const { eventoId, datosComprador, entradasSeleccionadas } = req.body;
-  const evento = eventos.find(e => e.id === parseInt(eventoId));
-
-  if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
-
-  const totalSolicitado = Object.values(entradasSeleccionadas).reduce((a, b) => a + b, 0);
-  if ((evento.ticketsVendidos + totalSolicitado) > evento.ticketsMax) {
-    return res.status(400).json({ error: "Cupos agotados para este aforo de 40 personas." });
-  }
-
-  let itemsMercadoPago = [];
-  for (const [catNombre, cantidad] of Object.entries(entradasSeleccionadas)) {
-    if (cantidad > 0) {
-      const catInfo = evento.categorias.find(c => c.nombre === catNombre);
-      itemsMercadoPago.push({
-        title: `${evento.titulo} (${catNombre})`,
-        quantity: parseInt(cantidad),
-        unit_price: Number(catInfo.precio),
-        currency_id: 'CLP'
-      });
-    }
-  }
-
+// Crear nuevo evento
+app.post('/api/eventos', (req, res) => {
   try {
-    const preference = new Preference(client);
-    const ticketIdUnico = "TK-" + Math.floor(Math.random() * 90000 + 10000);
+    const { titulo, descripcion, fecha, categoria, comuna, direccion, lat, lng, imagen, categorias, ticketsMax } = req.body;
 
-    const result = await preference.create({
-      body: {
-        items: itemsMercadoPago,
-        payer: {
-          name: datosComprador.nombre,
-          email: datosComprador.email,
-          phone: { number: datosComprador.whatsapp }
-        },
-        back_urls: {
-          success: `http://localhost:3000/confirmacion.html?eventoId=${evento.id}&nombre=${encodeURIComponent(datosComprador.nombre)}&ticketId=${ticketIdUnico}`,
-          failure: "http://localhost:3000/index.html",
-        },
-        auto_return: "approved",
-      }
-    });
+    const nuevoEvento = {
+      id: eventos.length > 0 ? Math.max(...eventos.map(e => e.id)) + 1 : 1,
+      titulo: titulo || "Sin título",
+      descripcion: descripcion || "Sin descripción",
+      fecha: fecha || "2026-07-31T20:00",
+      categoria: categoria || "Salud mental",
+      comuna: comuna || "providencia",
+      direccion: direccion || "",
+      lat: parseFloat(lat) || -33.435,
+      lng: parseFloat(lng) || -70.620,
+      imagen: imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=800',
+      ticketsVendidos: 0,
+      ticketsMax: parseInt(ticketsMax) || 40,
+      categorias: categorias || []
+    };
 
-    comprasRegistradas.push({
-      ticketId: ticketIdUnico,
-      eventoId: evento.id,
-      datosComprador: datosComprador,
-      usado: false
-    });
-
-    evento.ticketsVendidos += totalSolicitado;
-    res.json({ id: result.id });
+    eventos.push(nuevoEvento);
+    console.log(`[EVENTO CREADO] "${nuevoEvento.titulo}" | Fecha: ${nuevoEvento.fecha}`);
+    res.status(201).json({ mensaje: "Evento creado exitosamente", evento: nuevoEvento });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Error en Mercado Pago" });
+    res.status(500).json({ error: "Error interno al crear el evento." });
   }
 });
 
-// API: Compilar código QR en base64
-app.post('/api/generar-qr', async (req, res) => {
-  const { ticketId } = req.body;
+// Editar/Actualizar evento existente
+app.put('/api/eventos/:id', (req, res) => {
   try {
-    const qrDataUrl = await QRCode.toDataURL(ticketId);
-    res.json({ qr: qrDataUrl });
-  } catch (err) {
-    res.status(500).json({ error: "Error al generar QR" });
-  }
-});
+    const eventoId = parseInt(req.params.id);
+    const index = eventos.findIndex(e => e.id === eventoId);
 
-// API: Validador de QR mediante escáner de cámara
-app.post('/api/validar-ticket', (req, res) => {
-  const { ticketId } = req.body;
-  const ticket = comprasRegistradas.find(t => t.ticketId === ticketId);
-
-  if (!ticket) {
-    return res.status(404).json({ valido: false, mensaje: "❌ Ticket no válido o inexistente." });
-  }
-  if (ticket.usado) {
-    return res.status(400).json({ valido: false, mensaje: "⚠️ ¡Alerta! Este ticket ya fue escaneado." });
-  }
-
-  ticket.usado = true;
-  const evento = eventos.find(e => e.id === ticket.eventoId);
-  res.json({
-    valido: true,
-    mensaje: "✅ ¡Acceso Autorizado!",
-    comprador: ticket.datosComprador.nombre,
-    evento: evento ? evento.titulo : "Taller"
-  });
-});
-
-// CRON JOB: Envío automatizado simulado por WhatsApp 1 día antes a las 9 AM
-cron.schedule('0 9 * * *', () => {
-  const manana = new Date();
-  manana.setDate(manana.getDate() + 1);
-  const fechaMananaStr = manana.toISOString().split('T')[0];
-
-  comprasRegistradas.forEach(compra => {
-    const evento = eventos.find(e => e.id === compra.eventoId);
-    if (evento && evento.fecha.split('T')[0] === fechaMananaStr) {
-      console.log(`[WhatsApp Recordatorio Sent] To: +56${compra.datosComprador.whatsapp} -> ¡Hola ${compra.datosComprador.nombre}! Recuerda tu función de mañana para ${evento.titulo}. Prepara tu QR.`);
+    if (index === -1) {
+      return res.status(404).json({ error: "Evento no encontrado." });
     }
-  });
+
+    const { titulo, descripcion, fecha, categoria, comuna, direccion, lat, lng, imagen, categorias, ticketsMax } = req.body;
+
+    eventos[index] = {
+      ...eventos[index],
+      titulo: titulo || eventos[index].titulo,
+      descripcion: descripcion !== undefined ? descripcion : eventos[index].descripcion,
+      fecha: fecha ? fecha : eventos[index].fecha, // Conserva o actualiza la fecha
+      categoria: categoria || eventos[index].categoria,
+      comuna: comuna || eventos[index].comuna,
+      direccion: direccion || eventos[index].direccion,
+      lat: lat ? parseFloat(lat) : eventos[index].lat,
+      lng: lng ? parseFloat(lng) : eventos[index].lng,
+      imagen: imagen ? imagen : eventos[index].imagen,
+      categorias: categorias || eventos[index].categorias,
+      ticketsMax: ticketsMax ? parseInt(ticketsMax) : eventos[index].ticketsMax
+    };
+
+    console.log(`[EVENTO ACTUALIZADO] ID: ${eventoId} | Nueva Fecha: ${eventos[index].fecha}`);
+    res.json({ mensaje: "Evento actualizado correctamente", evento: eventos[index] });
+  } catch (error) {
+    res.status(500).json({ error: "Error interno al actualizar el evento." });
+  }
 });
 
 const PORT = 3000;
-app.listen(PORT, () => console.log(`Servidor unificado en http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Servidor ejecutándose en http://localhost:${PORT}`));

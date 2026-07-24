@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acceso Organizadores - Vive Ticket</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-white flex items-center justify-center min-h-screen px-4 font-sans">
+
+    <div class="bg-[#18181b] border border-zinc-800 p-8 rounded-2xl w-full max-w-xl shadow-2xl space-y-6">
+        
+        <!-- ENCABEZADO DE LA PLATAFORMA -->
+        <div class="text-center">
+            <span class="text-3xl font-black tracking-wider text-amber-500">VIVE TICKET</span>
+            <p id="form-subtitle" class="text-zinc-400 text-sm mt-2">Ingresa al portal de organizadores</p>
+        </div>
+
+        <!-- FORMULARIO PRINCIPAL -->
+        <form id="auth-form" class="space-y-4">
+            
+            <!-- VISTA A: FORMULARIO DE INICIO DE SESIÓN (LOGIN) -->
+            <div id="login-fields" class="space-y-4">
+                <div>
+                    <label class="block text-xs text-gray-400 font-bold uppercase mb-1 px-1">Correo Electrónico</label>
+                    <input type="email" id="login-email" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 text-white outline-none focus:border-amber-500 transition px-5">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 font-bold uppercase mb-1 px-1">Contraseña</label>
+                    <input type="password" id="login-password" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 text-white outline-none focus:border-amber-500 transition px-5">
+                </div>
+            </div>
+
+            <!-- VISTA B: PASO 1 - DATOS PERSONALES -->
+            <div id="step-personal-fields" class="space-y-4 hidden">
+                <h3 class="text-xl font-bold mb-2 text-zinc-200">Datos personales</h3>
+                
+                <input type="text" id="reg-nombre" placeholder="Nombre *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <input type="text" id="reg-apellido" placeholder="Apellido *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <input type="text" id="reg-empresa" placeholder="Empresa/Productora *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <input type="email" id="reg-email" placeholder="Correo Electrónico *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <input type="password" id="reg-password" placeholder="Contraseña de la cuenta *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <input type="text" id="reg-telefono" value="+569" placeholder="+569" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+            </div>
+
+            <!-- VISTA C: PASO 2 - DATOS DE TU EVENTO -->
+            <div id="step-event-fields" class="space-y-4 hidden">
+                <h3 class="text-xl font-bold mb-2 text-zinc-200">Datos de tu evento</h3>
+                <input type="text" id="event-nombre" placeholder="Nombre de evento" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                
+                <!-- Dropdown Solicitado -->
+                <select id="event-categoria" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition appearance-none">
+                    <option value="" disabled selected>Selecciona una categoría</option>
+                    <option value="salud mental">Salud Mental</option>
+                    <option value="entretenimiento">Entretenimiento</option>
+                    <option value="educación">Educación</option>
+                    <option value="cultura">Cultura</option>
+                </select>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <input type="date" id="event-fecha" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                    <input type="time" id="event-hora" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                </div>
+
+                <input type="text" id="event-lugar" placeholder="Lugar o Dirección (Ej: Providencia 1200)" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <textarea id="event-mensaje" placeholder="Descripción del evento" rows="4" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-2xl p-3.5 px-5 text-white outline-none focus:border-amber-500 transition resize-none"></textarea>
+            </div>
+            
+            <!-- Mensajes del Servidor -->
+            <div id="error-message" class="text-red-500 text-xs font-bold hidden text-center"></div>
+            <div id="success-message" class="text-green-500 text-xs font-bold hidden text-center"></div>
+            
+            <!-- BOTÓN PRINCIPAL DE ACCIÓN -->
+            <div class="flex justify-center pt-2">
+                <button type="submit" id="btn-submit" class="w-full sm:w-auto min-w-[160px] bg-zinc-300 text-zinc-900 hover:bg-white font-bold py-3 px-8 rounded-full uppercase tracking-wider text-sm transition-all shadow-md">
+                    Siguiente
+                </button>
+            </div>
+        </form>
+
+        <!-- SECCIÓN DE ENLACES INFERIORES -->
+        <div class="flex flex-col gap-3 pt-2 text-center text-sm border-t border-zinc-800/60">
+            <div class="flex justify-between items-center px-2">
+                <button id="btn-toggle-mode" class="text-amber-500 hover:underline text-xs font-bold uppercase tracking-wider">
+                    ¿No tienes cuenta? Crear Cuenta
+                </button>
+                <button id="btn-forgot" class="text-zinc-400 hover:text-white text-xs font-medium">
+                    Olvidé mi contraseña
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONTROLADOR DE LA LÓGICA E INTERFAZ -->
+    <script>
+        const form = document.getElementById('auth-form');
+        const errorDiv = document.getElementById('error-message');
+        const successDiv = document.getElementById('success-message');
+        
+        const loginFields = document.getElementById('login-fields');
+        const stepPersonalFields = document.getElementById('step-personal-fields');
+        const stepEventFields = document.getElementById('step-event-fields');
+        
+        const btnSubmit = document.getElementById('btn-submit');
+        const btnToggleMode = document.getElementById('btn-toggle-mode');
+        const btnForgot = document.getElementById('btn-forgot');
+        const subtitle = document.getElementById('form-subtitle');
+
+        let currentMode = 'login'; // 'login', 'reg-step1', 'reg-step2'
+
+        // Cambiar dinámicamente entre Login y el Asistente de Registro
+        btnToggleMode.addEventListener('click', () => {
+            errorDiv.classList.add('hidden');
+            successDiv.classList.add('hidden');
+            
+            if (currentMode === 'login') {
+                setMode('reg-step1');
+            } else {
+                setMode('login');
+            }
+        });
+
+        function setMode(mode) {
+            currentMode = mode;
+            errorDiv.classList.add('hidden');
+
+            // Reset de visibilidad
+            loginFields.classList.add('hidden');
+            stepPersonalFields.classList.add('hidden');
+            stepEventFields.classList.add('hidden');
+            btnForgot.classList.remove('invisible');
+
+            if (mode === 'login') {
+                subtitle.innerText = 'Ingresa al portal de organizadores';
+                loginFields.classList.remove('remove');
+                loginFields.classList.remove('hidden');
+                btnSubmit.innerText = 'Siguiente';
+                btnToggleMode.innerText = '¿No tienes cuenta? Crear Cuenta';
+            } 
+            else if (mode === 'reg-step1') {
+                subtitle.innerText = 'Crea tu cuenta de Productor / Tallerista';
+                stepPersonalFields.classList.remove('hidden');
+                btnSubmit.innerText = 'Siguiente';
+                btnToggleMode.innerText = '¿Ya tienes cuenta? Ingresar';
+                btnForgot.classList.add('invisible');
+            } 
+            else if (mode === 'reg-step2') {
+                subtitle.innerText = 'Cuéntanos sobre tu primer evento';
+                stepEventFields.classList.remove('hidden');
+                btnSubmit.innerText = 'Finalizar Registro';
+                btnToggleMode.innerText = '← Volver al paso anterior';
+                btnForgot.classList.add('invisible');
+            }
+        }
+
+        // Simulación básica de Olvidé mi Contraseña
+        btnForgot.addEventListener('click', () => {
+            errorDiv.classList.add('hidden');
+            successDiv.classList.remove('hidden');
+            successDiv.innerText = 'Se envió un enlace para reestablecer la clave a tu correo.';
+        });
+
+        // Intercepción del Submit del Formulario
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorDiv.classList.add('hidden');
+            successDiv.classList.add('hidden');
+
+            if (currentMode === 'login') {
+                const email = document.getElementById('login-email').value;
+                const password = document.getElementById('login-password').value;
+
+                if(!email || !password) {
+                    showError('Por favor completa las credenciales.');
+                    return;
+                }
+
+                // Petición de Login al Servidor
+                executeAuth('/api/auth/login', { email, password }, true);
+            } 
+            else if (currentMode === 'reg-step1') {
+                // Validación básica de campos obligatorios del paso 1
+                if(!document.getElementById('reg-nombre').value || 
+                   !document.getElementById('reg-apellido').value || 
+                   !document.getElementById('reg-empresa').value || 
+                   !document.getElementById('reg-password').value || 
+                   !document.getElementById('reg-email').value) {
+                    showError('Por favor rellena todos los campos obligatorios (*).');
+                    return;
+                }
+                // Avanza al paso de datos del evento
+                setMode('reg-step2');
+            } 
+            else if (currentMode === 'reg-step2') {
+                // Validación básica paso 2
+                if(!document.getElementById('event-nombre').value || 
+                   !document.getElementById('event-categoria').value || 
+                   !document.getElementById('event-lugar').value) {
+                    showError('El nombre, la categoría y el lugar del evento son requeridos.');
+                    return;
+                }
+
+                // Recopilación de toda la data estructurada
+                const payload = {
+                    nombre: document.getElementById('reg-nombre').value,
+                    apellido: document.getElementById('reg-apellido').value,
+                    empresa: document.getElementById('reg-empresa').value,
+                    email: document.getElementById('reg-email').value,
+                    password: document.getElementById('reg-password').value,
+                    telefono: document.getElementById('reg-telefono').value,
+                    evento: {
+                        titulo: document.getElementById('event-nombre').value,
+                        categoria: document.getElementById('event-categoria').value,
+                        fecha: document.getElementById('event-fecha').value,
+                        hora: document.getElementById('event-hora').value,
+                        lugar: document.getElementById('event-lugar').value,
+                        mensaje: document.getElementById('event-mensaje').value
+                    }
+                };
+
+                // Petición final de Registro Completo al Servidor
+                executeAuth('/api/auth/register', payload, false);
+            }
+        });
+
+        async function executeAuth(url, bodyData, isLogin) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bodyData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Ocurrió un error en el sistema.');
+                }
+
+                if (isLogin) {
+                    localStorage.setItem('token_ticketera', data.token);
+                    window.location.href = 'dashboard.html';
+                } else {
+                    successDiv.innerText = '¡Cuenta y evento inicial creados con éxito! Ya puedes ingresar.';
+                    successDiv.classList.remove('hidden');
+                    setMode('login');
+                    form.reset();
+                }
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        function showError(msg) {
+            errorDiv.innerText = msg;
+            errorDiv.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>

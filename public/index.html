@@ -1,322 +1,138 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Viva ticket</title>
-    <!-- Tailwind CSS para diseño moderno -->
+    <title>Viva Ticket</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Leaflet para el Mapa -->
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        .carousel-container::-webkit-scrollbar { display: none; }
-        .carousel-container { -ms-overflow-style: none; scrollbar-width: none; }
-    </style>
 </head>
-<body class="bg-gray-50 text-gray-900">
+<body class="bg-gray-50 text-gray-900 font-sans">
 
-    <!-- NAVBAR ESTILO PASSLINE -->
+    <!-- NAVBAR DINÁMICA -->
     <nav class="bg-zinc-950 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-[1000]">
         <div class="flex items-center gap-8">
-            <span class="text-2xl font-black tracking-wider text-amber-500">VIVA TICKET</span>
+            <span class="text-2xl font-black tracking-wider text-amber-500">VIVE TICKET</span>
             <div class="hidden md:flex bg-zinc-800 rounded-full px-4 py-2 w-80 items-center">
-                <input type="text" placeholder="Buscar eventos, talleres..." class="bg-transparent border-none outline-none text-sm w-full text-gray-300 placeholder-gray-500">
+                <input type="text" id="input-buscar-global" placeholder="Buscar eventos, talleres..." class="bg-transparent border-none outline-none text-sm w-full text-gray-300 placeholder-gray-500">
             </div>
         </div>
+        
         <div class="flex items-center gap-4 text-sm font-semibold">
-            <a href="#" class="hover:text-amber-500 transition">Arriendo de espacios</a>
-            <a href="dashboard.html" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 px-4 py-2 rounded-full transition">Publica tu evento</a>
+            <a href="#" class="hover:text-amber-500 transition hidden sm:inline">Arriendo de espacios</a>
+            
+            <!-- CONTENEDOR DINÁMICO DE BOTÓN DE SESIÓN -->
+            <div id="contenedor-boton-sesion">
+                <!-- Se dibuja dinámicamente desde app.js -->
+            </div>
         </div>
     </nav>
 
-    <!-- CARRUSEL ESTILO BOOTSTRAP (Reemplaza al Hero anterior) -->
-    <header class="relative w-full h-[500px] bg-zinc-600 overflow-hidden group">
-        <!-- Contenedor de Slides -->
-        <div id="bootstrap-carousel" class="relative w-full h-full">
-            
-            <!-- Slide 1 (Activo por defecto) -->
-            <div class="carousel-item absolute inset-0 w-full h-full transition-opacity duration-700 ease-in-out opacity-100 z-10 flex items-center justify-start px-12 md:px-24 bg-cover bg-center bg-no-repeat bg-[linear-gradient(to_right,rgba(0,0,0,0.7),rgba(0,0,0,0.3)),url('constru.jpg')]">
-                <div class="max-w-2xl text-white space-y-4">
-                    <h1 class="text-4xl md:text-5xl font-bold tracking-tight">Example headline.</h1>
-                    <p class="text-lg text-gray-300">Some representative placeholder content for the first slide of the carousel.</p>
-                <button class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-lg text-lg transition">Comprar entradas</button>
-                </div>
-            </div>
-
-            <!-- Slide 2 -->
-            <div class="carousel-item absolute inset-0 w-full h-full transition-opacity duration-700 ease-in-out opacity-0 z-0 flex items-center justify-start px-12 md:px-24 bg-zinc-800">
-                <div class="max-w-2xl text-white space-y-4">
-                    <h1 class="text-4xl md:text-5xl font-bold tracking-tight">Another exciting event.</h1>
-                    <p class="text-lg text-gray-300">Some representative placeholder content for the second slide of the carousel.</p>
-                    <button class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-lg text-lg transition">Comprar entradas</button>
-                </div>
-            </div>
-
-            <!-- Slide 3 -->
-            <div class="carousel-item absolute inset-0 w-full h-full transition-opacity duration-700 ease-in-out opacity-0 z-0 flex items-center justify-start px-12 md:px-24 bg-zinc-900">
-                <div class="max-w-2xl text-white space-y-4">
-                    <h1 class="text-4xl md:text-5xl font-bold tracking-tight">One more for good measure.</h1>
-                    <p class="text-lg text-gray-300">Some representative placeholder content for the third slide of the carousel.</p>
-                    <button class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-lg text-lg transition">Comprar entradas</button>
-                </div>
+    <!-- CARRUSEL DESTACADO -->
+    <header class="relative w-full h-[500px] bg-zinc-800 overflow-hidden group">
+        <div id="carousel-inner" class="relative w-full h-full">
+            <div class="absolute inset-0 w-full h-full flex items-center justify-center text-white font-bold">
+                Cargando eventos destacados...
             </div>
         </div>
 
-        <!-- Controles Flecha Izquierda -->
         <button id="prevBtn" class="absolute top-0 left-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-50 hover:opacity-100 transition-opacity">
             <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light">❮</span>
         </button>
 
-        <!-- Controles Flecha Derecha -->
         <button id="nextBtn" class="absolute top-0 right-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-50 hover:opacity-100 transition-opacity">
             <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light">❯</span>
         </button>
-
-        <!-- Indicadores (Líneas de abajo) -->
-        <div class="absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2 space-x-3">
-            <button class="carousel-indicator w-8 h-1 bg-white opacity-100" data-slide="0"></button>
-            <button class="carousel-indicator w-8 h-1 bg-white opacity-40" data-slide="1"></button>
-            <button class="carousel-indicator w-8 h-1 bg-white opacity-40" data-slide="2"></button>
-        </div>
     </header>
 
-    <!-- SECCIÓN DE CATEGORÍAS ESTILO FEASTABLES -->
+    <!-- SECCIONES DE CATEGORÍAS -->
     <main class="max-w-7xl mx-auto px-6 py-12 space-y-16">
         
-        <!-- 🧠 CATEGORÍA: SALUD MENTAL -->
+        <!-- SALUD MENTAL -->
         <section>
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Salud mental</h2>
                 <span class="text-xs md:text-sm bg-red-500 text-white font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">Máx 40 cupos</span>
             </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <!-- Tarjeta 1 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Taller de Ansiedad</h3>
-                    <p class="text-gray-500 font-bold mb-6">$14.990</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-                <!-- Tarjeta 2 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Mindfulness Guiado</h3>
-                    <p class="text-gray-500 font-bold mb-6">$9.990</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-                <!-- Tarjeta 3 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Gestión Emocional</h3>
-                    <p class="text-gray-500 font-bold mb-6">$19.990</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-            </div>
+            <div id="grid-Salud mental" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
 
-        <!-- 🍿 CATEGORÍA: ENTRETENIMIENTO -->
+        <!-- ENTRETENIMIENTO -->
         <section>
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Entretenimiento</h2>
                 <span class="text-xs md:text-sm bg-red-500 text-white font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">Máx 40 cupos</span>
             </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <!-- Tarjeta 1 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Stand Up Comedy</h3>
-                    <p class="text-gray-500 font-bold mb-6">$12.000</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-                <!-- Tarjeta 2 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Festival de Música</h3>
-                    <p class="text-gray-500 font-bold mb-6">$25.000</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-                <!-- Tarjeta 3 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Noche de Trivia</h3>
-                    <p class="text-gray-500 font-bold mb-6">$5.000</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-            </div>
+            <div id="grid-Entretenimiento" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
 
-        <!-- 🎓 CATEGORÍA: EDUCACIÓN -->
+        <!-- EDUCACIÓN -->
         <section>
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Educación</h2>
                 <span class="text-xs md:text-sm bg-red-500 text-white font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">Máx 40 cupos</span>
             </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <!-- Tarjeta 1 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Curso Express de JS</h3>
-                    <p class="text-gray-500 font-bold mb-6">$30.000</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-                <!-- Tarjeta 2 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Charla de IA Aplicada</h3>
-                    <p class="text-gray-500 font-bold mb-6">Gratuito</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-                <!-- Tarjeta 3 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Seminario UX/UI</h3>
-                    <p class="text-gray-500 font-bold mb-6">$15.000</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-            </div>
+            <div id="grid-Educación" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
 
-        <!-- 🎭 CATEGORÍA: CULTURA -->
+        <!-- CULTURA -->
         <section>
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Cultura</h2>
                 <span class="text-xs md:text-sm bg-red-500 text-white font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">Máx 40 cupos</span>
             </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <!-- Tarjeta 1 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Obra Teatral Local</h3>
-                    <p class="text-gray-500 font-bold mb-6">$8.000</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-                <!-- Tarjeta 2 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Exposición de Arte</h3>
-                    <p class="text-gray-500 font-bold mb-6">Gratuito</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-                <!-- Tarjeta 3 -->
-                <div class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center transition-transform hover:scale-[1.02] duration-300">
-                    <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-6 overflow-hidden relative">
-                        <span>[ Imagen / Flyer Evento ]</span>
-                    </div>
-                    <h3 class="text-2xl font-black text-zinc-900 mb-1">Tour Patrimonial</h3>
-                    <p class="text-gray-500 font-bold mb-6">$10.000</p>
-                    <button class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">Comprar Entradas</button>
-                </div>
-            </div>
+            <div id="grid-Cultura" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
 
     </main>
 
-    <!-- SECCIÓN DEL MAPA GRANDE Y FILTROS -->
+    <!-- MAPA -->
     <section class="bg-zinc-900 text-white py-12 px-6">
-        <div class="max-w-7xl mx-auto">
-            <h2 class="text-3xl font-bold mb-6 text-center">Busca por evento por fecha o comuna</h2>
-            
-            <!-- Barra de Filtros -->
-            <div class="bg-zinc-800 p-4 rounded-xl flex flex-col md:flex-row gap-4 mb-6 justify-center items-center shadow-lg">
-                <div class="w-full md:w-1/3">
-                    <label class="block text-xs text-gray-400 font-bold uppercase mb-1">Comuna</label>
-                    <select id="filtro-comuna" class="w-full bg-zinc-700 border-none rounded-lg p-2.5 text-white outline-none">
-                        <option value="todos">Todas las comunas</option>
-                        <option value="ñuñoa">Ñuñoa</option>
-                        <option value="providencia">Providencia</option>
-                    </select>
-                </div>
-                <div class="w-full md:w-1/3">
-                    <label class="block text-xs text-gray-400 font-bold uppercase mb-1">Fecha del Evento</label>
-                    <input type="date" id="filtro-fecha" class="w-full bg-zinc-700 border-none rounded-lg p-2 text-white outline-none">
-                </div>
-                <div class="w-full md:w-auto pt-4 md:pt-0">
-                    <button class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold px-8 py-3 rounded-lg transition w-full">Buscar en Mapa</button>
-                </div>
+        <div class="max-w-7xl mx-auto space-y-8">
+            <div class="text-center space-y-4">
+                <h2 class="text-3xl font-black text-white">Busca evento por fecha o comuna</h2>
+                <p class="text-gray-400 text-sm">Filtra la disponibilidad de los talleres en el mapa e interactúa con sus ubicaciones.</p>
             </div>
 
-            <!-- Contenedor del Mapa -->
-            <div id="mapa" class="w-full h-[550px] rounded-xl overflow-hidden border-4 border-zinc-800 shadow-2xl"></div>
+            <!-- BARRA DE FILTROS -->
+            <div class="bg-zinc-800 p-4 rounded-2xl border border-zinc-700 flex flex-col md:flex-row gap-4 items-center justify-between shadow-xl">
+                <div class="w-full md:w-1/2 flex items-center gap-3 bg-zinc-900 px-4 py-3 rounded-xl border border-zinc-700">
+                    <span class="text-lg">📍</span>
+                    <div class="w-full">
+                        <label class="block text-[10px] font-bold uppercase text-amber-500 tracking-wider">Seleccionar Comuna</label>
+                        <select id="filtro-comuna" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer">
+                            <option value="todas" class="bg-zinc-900 text-white">Todas las comunas</option>
+                            <option value="providencia" class="bg-zinc-900 text-white">Providencia</option>
+                            <option value="ñuñoa" class="bg-zinc-900 text-white">Ñuñoa</option>
+                            <option value="las condes" class="bg-zinc-900 text-white">Las Condes</option>
+                            <option value="la reina" class="bg-zinc-900 text-white">La Reina</option>
+                            <option value="vitacura" class="bg-zinc-900 text-white">Vitacura</option>
+                            <option value="lo barnechea" class="bg-zinc-900 text-white">Lo Barnechea</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-1/2 flex items-center gap-3 bg-zinc-900 px-4 py-3 rounded-xl border border-zinc-700">
+                    <span class="text-lg">📅</span>
+                    <div class="w-full">
+                        <label class="block text-[10px] font-bold uppercase text-amber-500 tracking-wider">Buscar por Fecha</label>
+                        <input type="date" id="filtro-fecha" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer">
+                    </div>
+                </div>
+
+                <button onclick="limpiarFiltrosBusqueda()" class="w-full md:w-auto bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black px-6 py-3.5 rounded-xl transition text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer">
+                    🔄 Limpiar Filtros
+                </button>
+            </div>
+
+            <div id="mapa" class="w-full h-[550px] rounded-2xl overflow-hidden border-4 border-zinc-800 shadow-2xl"></div>
         </div>
     </section>
 
-    <!-- Scripts -->
+    <!-- SCRIPTS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://sdk.mercadopago.com/js/v2"></script>
-    
-    <!-- Lógica del nuevo Carrusel de Encabezado -->
-    <script>
-        const items = document.querySelectorAll('.carousel-item');
-        const indicators = document.querySelectorAll('.carousel-indicator');
-        let currentIndex = 0;
-
-        function showSlide(index) {
-            items.forEach((item, i) => {
-                if (i === index) {
-                    item.classList.remove('opacity-0', 'z-0');
-                    item.classList.add('opacity-100', 'z-10');
-                    indicators[i].classList.remove('opacity-40');
-                    indicators[i].classList.add('opacity-100');
-                } else {
-                    item.classList.remove('opacity-100', 'z-10');
-                    item.classList.add('opacity-0', 'z-0');
-                    indicators[i].classList.remove('opacity-100');
-                    indicators[i].classList.add('opacity-40');
-                }
-            });
-            currentIndex = index;
-        }
-
-        document.getElementById('nextBtn').addEventListener('click', () => {
-            let next = (currentIndex + 1) % items.length;
-            showSlide(next);
-        });
-
-        document.getElementById('prevBtn').addEventListener('click', () => {
-            let prev = (currentIndex - 1 + items.length) % items.length;
-            showSlide(prev);
-        });
-
-        indicators.forEach((indicator, index) => {
-            indicator.addEventListener('click', () => showSlide(index));
-        });
-
-        // Cambio automático cada 5 segundos (opcional, como Bootstrap)
-        setInterval(() => {
-            let next = (currentIndex + 1) % items.length;
-            showSlide(next);
-        }, 5000);
-    </script>
-
     <script src="app.js"></script>
 </body>
 </html>
-
-```

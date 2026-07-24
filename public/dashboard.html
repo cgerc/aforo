@@ -2,74 +2,398 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Portal Tallerista</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Tallerista - Viva Ticket</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- GUARDIA DE SEGURIDAD DE RUTA -->
+    <script>
+        // Si no existe la sesión activa, redirige inmediatamente a home
+        if (localStorage.getItem('usuario_autenticado') !== 'true') {
+            alert("Debes iniciar sesión para acceder al panel de tallerista.");
+            window.location.href = 'index.html';
+        }
+    </script>
 </head>
-<body class="bg-slate-100 flex h-screen">
+<body class="bg-slate-100 flex h-screen font-sans">
 
-    <aside class="w-64 bg-zinc-950 text-white p-6 space-y-6">
-        <h2 class="text-xl font-black text-amber-500 tracking-wider">SOY TALLERISTA</h2>
-        <nav class="space-y-3">
-            <a href="#" class="block bg-zinc-800 p-3 rounded font-semibold text-amber-400">📈 Métricas y Precios</a>
-            <a href="validador.html" class="block text-gray-300 hover:text-white p-3">📷 Escanear Acceso QR</a>
-            <a href="index.html" class="block text-gray-400 hover:text-white p-3">🏠 Regresar</a>
-        </nav>
+    <!-- BARRA LATERAL -->
+    <aside class="w-64 bg-zinc-950 text-white p-6 space-y-6 flex flex-col justify-between">
+        <div>
+            <h2 class="text-xl font-black text-amber-500 tracking-wider mb-8">SOY TALLERISTA</h2>
+            <nav class="space-y-3">
+                <a href="#seccion-mis-eventos" class="block bg-zinc-800 p-3 rounded-lg font-semibold text-amber-400">📅 Mis Eventos</a>
+                <a href="index.html" class="block text-gray-400 hover:text-white p-3 transition">🏠 Regresar a Inicio</a>
+            </nav>
+        </div>
+        
+        <div class="border-t border-zinc-800 pt-4">
+            <button onclick="cerrarSesion()" class="w-full bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white font-bold py-2.5 px-4 rounded-lg border border-red-500/30 transition text-sm flex items-center justify-center gap-2 cursor-pointer">
+                🚪 Cerrar sesión
+            </button>
+            <span class="text-[10px] text-gray-500 block text-center mt-3">Viva Ticket v1.0</span>
+        </div>
     </aside>
 
-    <main class="flex-1 p-8 overflow-y-auto">
-        <h1 class="text-3xl font-bold text-gray-900 mb-6">Administración de Categorías y Aforo</h1>
-        
-        <div class="bg-white p-6 rounded-xl border mb-6 max-w-xl">
-            <h3 class="font-bold text-lg mb-4 text-gray-800">Modificar Precios de Categorías</h3>
-            <button onclick="modificarPrecios()" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold px-4 py-2 rounded-lg w-full">
-                Configurar Categorías (Niño, Bebé, Adulto mayor)
-            </button>
-        </div>
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="flex-1 p-8 overflow-y-auto space-y-8">
+        <header>
+            <h1 class="text-3xl font-black text-gray-900">Administración de Eventos</h1>
+            <p class="text-gray-500 text-sm mt-1">Crea, edita y gestiona tus publicaciones.</p>
+        </header>
 
-        <div class="bg-white p-6 rounded-xl border max-w-3xl">
-            <h3 class="font-bold text-lg mb-4">Estado del Aforo (Límite Máximo: 40)</h3>
-            <table class="w-full text-left">
-                <thead><tr class="text-gray-400 border-b"><th class="pb-2">Taller</th><th class="pb-2">Ventas</th><th class="pb-2">Capacidad</th></tr></thead>
-                <tbody id="tabla-aforo"></tbody>
-            </table>
-        </div>
+        <!-- FORMULARIO -->
+        <section class="bg-white p-6 rounded-xl border shadow-sm space-y-6">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h2 id="titulo-formulario" class="text-xl font-bold text-gray-800">➕ Agregar Nuevo Evento</h2>
+                <button id="btn-cancelar-edicion" onclick="resetearFormulario()" class="hidden text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold px-3 py-1.5 rounded-lg transition">
+                    ✕ Cancelar edición
+                </button>
+            </div>
+            
+            <form id="form-evento" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <input type="hidden" id="evento-id" value="">
+
+                <!-- Nombre -->
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Nombre del Evento / Taller:</label>
+                    <input type="text" id="evento-nombre" placeholder="Ej. Taller de bordado" class="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:border-amber-500" required>
+                </div>
+
+                <!-- Descripción -->
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Descripción del Evento:</label>
+                    <textarea id="evento-descripcion" rows="3" placeholder="Describe los detalles..." class="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:border-amber-500 text-sm" required></textarea>
+                </div>
+
+                <!-- Flyer -->
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Cargar Imagen / Flyer desde tu Computador:</label>
+                    <input type="file" id="evento-archivo" accept="image/*" class="w-full p-2.5 border rounded-lg bg-gray-50 outline-none text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer">
+                </div>
+
+                <!-- Fecha y Hora -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Fecha y Hora de la Función:</label>
+                    <input type="datetime-local" id="evento-fecha" class="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:border-amber-500" required>
+                </div>
+
+                <!-- Categoría -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Categoría del Evento:</label>
+                    <select id="evento-categoria" class="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:border-amber-500" required>
+                        <option value="Salud mental">Salud mental</option>
+                        <option value="Entretenimiento">Entretenimiento</option>
+                        <option value="Educación">Educación</option>
+                        <option value="Cultura">Cultura</option>
+                    </select>
+                </div>
+
+                <!-- Comuna -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Comuna (Para Filtros):</label>
+                    <select id="evento-comuna" class="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:border-amber-500" required>
+                        <option value="providencia">Providencia</option>
+                        <option value="ñuñoa">Ñuñoa</option>
+                        <option value="las condes">Las Condes</option>
+                        <option value="la reina">La Reina</option>
+                        <option value="vitacura">Vitacura</option>
+                        <option value="lo barnechea">Lo Barnechea</option>
+                    </select>
+                </div>
+
+                <!-- Dirección -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Dirección Exacta del Evento:</label>
+                    <input type="text" id="evento-direccion" placeholder="Ej. Av. Santa Isabel 1240" class="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:border-amber-500" required>
+                </div>
+
+                <!-- ENTRADAS DINÁMICAS -->
+                <div class="md:col-span-2 bg-slate-50 p-5 rounded-xl border space-y-4">
+                    <div class="flex justify-between items-center border-b pb-3">
+                        <div>
+                            <h3 class="text-md font-bold text-gray-800">Configuración de Entradas y Precios</h3>
+                            <p class="text-xs text-gray-500">Puedes agregar o eliminar los tipos de ticket que necesites.</p>
+                        </div>
+                        <button type="button" onclick="agregarFilaEntrada()" class="bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold text-xs py-2.5 px-4 rounded-lg border border-amber-300 transition shadow-sm flex items-center gap-1 cursor-pointer">
+                            ➕ Agregar Tipo de Entrada
+                        </button>
+                    </div>
+                    <div id="contenedor-filas-entradas" class="space-y-3"></div>
+                </div>
+
+                <!-- Botón Submit -->
+                <div class="md:col-span-2 pt-2">
+                    <button type="submit" id="btn-publicar" class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-4 rounded-xl uppercase tracking-wider text-sm transition shadow cursor-pointer">
+                        🚀 PUBLICAR EVENTO
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- MIS EVENTOS -->
+        <section id="seccion-mis-eventos" class="bg-white p-6 rounded-xl border shadow-sm space-y-4">
+            <h2 class="text-xl font-bold text-gray-800 border-b pb-3">📅 Mis Eventos Publicados</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="text-gray-400 border-b text-xs uppercase font-bold">
+                            <th class="pb-3">Flyer</th>
+                            <th class="pb-3">Evento</th>
+                            <th class="pb-3">Categoría</th>
+                            <th class="pb-3">Dirección</th>
+                            <th class="pb-3 text-center">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-mis-eventos" class="divide-y text-sm text-gray-700"></tbody>
+                </table>
+            </div>
+        </section>
     </main>
 
     <script>
-        async function cargarDashboard() {
-            const res = await fetch('/api/eventos');
-            const data = await res.json();
-            const tbody = document.getElementById('tabla-aforo');
-            tbody.innerHTML = '';
+        let listaEventosLocales = [];
+
+        // FUNCIÓN DE CIERRE DE SESIÓN DEFINITIVA
+        function cerrarSesion() {
+            if (confirm("¿Estás seguro de que deseas cerrar sesión y regresar al inicio?")) {
+                localStorage.removeItem('usuario_autenticado');
+                window.location.replace('index.html');
+            }
+        }
+
+        const coordenadasComunasBase = {
+            "ñuñoa": { lat: -33.456, lng: -70.603 },
+            "providencia": { lat: -33.435, lng: -70.620 },
+            "las condes": { lat: -33.418, lng: -70.583 },
+            "la reina": { lat: -33.440, lng: -70.540 },
+            "vitacura": { lat: -33.398, lng: -70.575 },
+            "lo barnechea": { lat: -33.350, lng: -70.510 },
+            "santiago": { lat: -33.442, lng: -70.650 }
+        };
+
+        function agregarFilaEntrada(tipo = "", precio = "", cupos = "10") {
+            const contenedor = document.getElementById('contenedor-filas-entradas');
+            const nuevaFila = document.createElement('div');
             
-            data.forEach(ev => {
-                tbody.innerHTML += `<tr class="border-b"><td class="py-3 font-semibold">${ev.titulo}</td><td>${ev.ticketsVendidos} vendidas</td><td>40 Máx</td></tr>`;
+            nuevaFila.className = 'fila-entrada grid grid-cols-1 md:grid-cols-12 gap-3 items-center bg-white p-3 rounded-lg border shadow-sm transition-all';
+            nuevaFila.innerHTML = `
+                <div class="md:col-span-5">
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Tipo de Entrada:</label>
+                    <input type="text" class="input-tipo p-2 border rounded-lg w-full text-sm bg-gray-50 outline-none focus:border-amber-500" placeholder="Ej. General, Niño, VIP" value="${tipo}" required>
+                </div>
+                <div class="md:col-span-3">
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Precio Ticket ($ CLP):</label>
+                    <input type="number" class="input-precio p-2 border rounded-lg w-full text-sm bg-gray-50 outline-none focus:border-amber-500" placeholder="Ej. 15000" value="${precio}" required>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Cantidad:</label>
+                    <input type="number" class="input-cupos p-2 border rounded-lg w-full text-sm font-bold text-amber-600 bg-gray-50 outline-none focus:border-amber-500" value="${cupos}" min="1" max="40" required>
+                </div>
+                <div class="md:col-span-2 text-right pt-2 md:pt-4">
+                    <button type="button" onclick="eliminarFilaEntrada(this)" class="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs py-2 px-3 rounded-lg border border-red-200 transition flex items-center justify-center gap-1 cursor-pointer">
+                        🗑️ Eliminar
+                    </button>
+                </div>
+            `;
+            contenedor.appendChild(nuevaFila);
+        }
+
+        function eliminarFilaEntrada(boton) {
+            const contenedor = document.getElementById('contenedor-filas-entradas');
+            const filas = contenedor.querySelectorAll('.fila-entrada');
+
+            if (filas.length <= 1) {
+                alert("Debes mantener al menos un tipo de entrada para la función.");
+                return;
+            }
+            boton.closest('.fila-entrada').remove();
+        }
+
+        function convertirArchivoABase64(archivo) {
+            return new Promise((resolve, reject) => {
+                const lector = new FileReader();
+                lector.onload = () => resolve(lector.result);
+                lector.onerror = (error) => reject(error);
+                lector.readAsDataURL(archivo);
             });
         }
 
-        async function modificarPrecios() {
-            const normal = prompt("Precio Entrada Normal:", "35000");
-            const nino = prompt("Precio Entrada Niño:", "15000");
-            const mayor = prompt("Precio Adulto Mayor:", "25000");
-
-            if(!normal || !nino || !mayor) return;
-
-            const nuevasCategorias = [
-                { nombre: "Normal", precio: parseFloat(normal) },
-                { nombre: "Niño", precio: parseFloat(nino) },
-                { nombre: "Bebé", precio: 0 },
-                { nombre: "Adulto mayor", precio: parseFloat(mayor) }
-            ];
-
-            await fetch('/api/eventos/actualizar-categorias', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ eventoId: 1, nuevasCategorias })
-            });
-            alert("Precios actualizados en el servidor con éxito.");
-            cargarDashboard();
+        async function obtenerCoordenadasDeDireccion(direccion, comuna) {
+            try {
+                const direccionLimpia = direccion.replace(/avenida/gi, "Av").trim();
+                const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(direccionLimpia + ', ' + comuna + ', Chile')}`;
+                const res = await fetch(url);
+                const datos = await res.json();
+                if (datos && datos.length > 0) {
+                    return { lat: parseFloat(datos[0].lat), lng: parseFloat(datos[0].lon) };
+                }
+            } catch (e) {}
+            return coordenadasComunasBase[comuna.toLowerCase()] || { lat: -33.435, lng: -70.620 };
         }
-        cargarDashboard();
+
+        async function cargarMisEventos() {
+            try {
+                const res = await fetch('/api/eventos');
+                listaEventosLocales = await res.json();
+
+                const tbody = document.getElementById('tabla-mis-eventos');
+                tbody.innerHTML = '';
+
+                listaEventosLocales.forEach(ev => {
+                    const flyerImg = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=100';
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-slate-50 transition">
+                            <td class="py-3">
+                                <img src="${flyerImg}" class="w-12 h-12 object-cover rounded-lg border" alt="Flyer">
+                            </td>
+                            <td class="py-3 font-semibold text-gray-900">
+                                ${ev.titulo}
+                                <span class="block text-xs text-gray-500 font-normal line-clamp-1">${ev.descripcion || 'Sin descripción'}</span>
+                            </td>
+                            <td class="py-3"><span class="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-bold">${ev.categoria}</span></td>
+                            <td class="py-3 text-xs text-gray-500">${ev.direccion || ''} (${ev.comuna})</td>
+                            <td class="py-3 text-center">
+                                <button onclick="prepararEdicion(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
+                                    ✏️ Editar
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (error) {
+                console.error("Error al cargar eventos:", error);
+            }
+        }
+
+        function prepararEdicion(id) {
+            const ev = listaEventosLocales.find(e => e.id === id);
+            if (!ev) return;
+
+            document.getElementById('evento-id').value = ev.id;
+            document.getElementById('evento-nombre').value = ev.titulo || '';
+            document.getElementById('evento-descripcion').value = ev.descripcion || '';
+            
+            if (ev.fecha && ev.fecha.includes('T')) {
+                const partes = ev.fecha.split('T');
+                const horaLimpia = partes[1].substring(0, 5);
+                document.getElementById('evento-fecha').value = `${partes[0]}T${horaLimpia}`;
+            } else {
+                document.getElementById('evento-fecha').value = ev.fecha || '';
+            }
+
+            document.getElementById('evento-categoria').value = ev.categoria || 'Salud mental';
+            document.getElementById('evento-comuna').value = ev.comuna || 'providencia';
+            document.getElementById('evento-direccion').value = ev.direccion || '';
+
+            const contenedor = document.getElementById('contenedor-filas-entradas');
+            contenedor.innerHTML = '';
+            if (ev.categorias && ev.categorias.length > 0) {
+                ev.categorias.forEach(cat => agregarFilaEntrada(cat.nombre, cat.precio, cat.cupos));
+            } else {
+                agregarFilaEntrada("General", 15000, 40);
+            }
+
+            document.getElementById('titulo-formulario').innerText = `✏️ Editando: "${ev.titulo}"`;
+            document.getElementById('btn-publicar').innerText = "💾 GUARDAR CAMBIOS";
+            document.getElementById('btn-cancelar-edicion').classList.remove('hidden');
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetearFormulario() {
+            document.getElementById('form-evento').reset();
+            document.getElementById('evento-id').value = "";
+            document.getElementById('titulo-formulario').innerText = "➕ Agregar Nuevo Evento";
+            document.getElementById('btn-publicar').innerText = "🚀 PUBLICAR EVENTO";
+            document.getElementById('btn-cancelar-edicion').classList.add('hidden');
+            document.getElementById('contenedor-filas-entradas').innerHTML = '';
+            agregarFilaEntrada("General", "15000", 40);
+        }
+
+        document.getElementById('form-evento').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const btn = document.getElementById('btn-publicar');
+            const eventoId = document.getElementById('evento-id').value;
+            const esEdicion = Boolean(eventoId);
+
+            btn.disabled = true;
+            btn.innerText = "⏳ Procesando datos...";
+
+            try {
+                let imagenBase64 = null;
+                const archivoInput = document.getElementById('evento-archivo');
+
+                if (archivoInput.files && archivoInput.files[0]) {
+                    imagenBase64 = await convertirArchivoABase64(archivoInput.files[0]);
+                }
+
+                const direccionTexto = document.getElementById('evento-direccion').value;
+                const comunaElegida = document.getElementById('evento-comuna').value;
+                const coords = await obtenerCoordenadasDeDireccion(direccionTexto, comunaElegida);
+                const fechaSeleccionada = document.getElementById('evento-fecha').value;
+
+                const filas = document.querySelectorAll('.fila-entrada');
+                const categoriasEntradas = [];
+                let cuposTotales = 0;
+
+                filas.forEach(fila => {
+                    const tipo = fila.querySelector('.input-tipo').value;
+                    const precio = parseFloat(fila.querySelector('.input-precio').value);
+                    const cupos = parseInt(fila.querySelector('.input-cupos').value);
+                    cuposTotales += cupos;
+                    categoriasEntradas.push({ nombre: tipo, precio, cupos });
+                });
+
+                if (cuposTotales > 40) {
+                    btn.disabled = false;
+                    btn.innerText = esEdicion ? "💾 GUARDAR CAMBIOS" : "🚀 PUBLICAR EVENTO";
+                    return alert(`La suma total de cupos (${cuposTotales}) excede el aforo permitido de 40.`);
+                }
+
+                const payload = {
+                    titulo: document.getElementById('evento-nombre').value,
+                    descripcion: document.getElementById('evento-descripcion').value,
+                    fecha: fechaSeleccionada,
+                    categoria: document.getElementById('evento-categoria').value,
+                    comuna: comunaElegida,
+                    direccion: direccionTexto,
+                    lat: coords.lat,
+                    lng: coords.lng,
+                    categorias: categoriasEntradas,
+                    ticketsMax: cuposTotales
+                };
+
+                if (imagenBase64) payload.imagen = imagenBase64;
+
+                const url = esEdicion ? `/api/eventos/${eventoId}` : '/api/eventos';
+                const metodo = esEdicion ? 'PUT' : 'POST';
+
+                const res = await fetch(url, {
+                    method: metodo,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    alert(esEdicion ? "¡Evento actualizado exitosamente!" : "¡Evento publicado exitosamente!");
+                    resetearFormulario();
+                    cargarMisEventos();
+                } else {
+                    alert("Ocurrió un error en la solicitud.");
+                }
+            } catch (error) {
+                console.error(error);
+                alert("Error de conexión.");
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        agregarFilaEntrada("General", "15000", 40);
+        cargarMisEventos();
     </script>
 </body>
 </html>

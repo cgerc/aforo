@@ -10,9 +10,8 @@
     <!-- GUARDIA DE SEGURIDAD DE RUTA -->
     <script>
         // Si no existe la sesión activa, redirige inmediatamente a home
-        if (localStorage.getItem('usuario_autenticado') !== 'true') {
-            alert("Debes iniciar sesión para acceder al panel de tallerista.");
-            window.location.href = 'index.html';
+        if (!localStorage.getItem('token_ticketera')) {
+            window.location.replace('login.html');
         }
     </script>
 </head>
@@ -23,7 +22,9 @@
         <div>
             <h2 class="text-xl font-black text-amber-500 tracking-wider mb-8">SOY TALLERISTA</h2>
             <nav class="space-y-3">
-                <a href="#seccion-mis-eventos" class="block bg-zinc-800 p-3 rounded-lg font-semibold text-amber-400">📅 Mis Eventos</a>
+                <a href="#seccion-metricas" class="block text-gray-400 hover:text-white p-3 transition">📈 Métricas de ventas</a>
+                <a href="#seccion-mis-eventos" class="block text-gray-400 hover:text-white p-3 transition">📅 Mis Eventos</a>
+                <a href="#seccion-qr" class="block text-gray-400 hover:text-white p-3 transition">📷 Escanear QR</a>
                 <a href="index.html" class="block text-gray-400 hover:text-white p-3 transition">🏠 Regresar a Inicio</a>
             </nav>
         </div>
@@ -42,6 +43,12 @@
             <h1 class="text-3xl font-black text-gray-900">Administración de Eventos</h1>
             <p class="text-gray-500 text-sm mt-1">Crea, edita y gestiona tus publicaciones.</p>
         </header>
+
+        <section id="seccion-metricas" aria-label="Métricas de ventas" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-zinc-950 text-white p-5 rounded-xl shadow-sm"><p class="text-xs uppercase text-zinc-400 font-bold">Eventos publicados</p><p id="metrica-eventos" class="text-3xl font-black mt-2">0</p></div>
+            <div class="bg-white p-5 rounded-xl border shadow-sm"><p class="text-xs uppercase text-gray-500 font-bold">Entradas vendidas</p><p id="metrica-entradas" class="text-3xl font-black text-gray-900 mt-2">0</p></div>
+            <div class="bg-white p-5 rounded-xl border shadow-sm"><p class="text-xs uppercase text-gray-500 font-bold">Ingresos estimados</p><p id="metrica-ingresos" class="text-3xl font-black text-amber-600 mt-2">$0</p></div>
+        </section>
 
         <!-- FORMULARIO -->
         <section class="bg-white p-6 rounded-xl border shadow-sm space-y-6">
@@ -150,17 +157,114 @@
                 </table>
             </div>
         </section>
+
+        <section id="seccion-qr" class="bg-white p-6 rounded-xl border shadow-sm space-y-4">
+            <h2 class="text-xl font-bold text-gray-800 border-b pb-3">📷 Escanear Código QR</h2>
+            <p class="text-sm text-gray-500">Usa la cámara para leer códigos QR de entradas y validar acceso.</p>
+            <div class="flex flex-wrap gap-3">
+                <button type="button" onclick="iniciarEscanerQR()" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-2.5 px-4 rounded-lg text-sm transition">▶️ Iniciar cámara</button>
+                <button type="button" onclick="detenerEscanerQR()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2.5 px-4 rounded-lg text-sm transition">⏹️ Detener</button>
+            </div>
+            <div class="rounded-xl border overflow-hidden bg-black/90">
+                <video id="qr-video" autoplay playsinline muted class="w-full max-h-[420px] object-cover"></video>
+            </div>
+            <canvas id="qr-canvas" class="hidden"></canvas>
+            <p id="qr-status" class="text-sm text-gray-600">Esperando cámara…</p>
+            <p id="qr-resultado" class="text-sm font-semibold text-amber-700"></p>
+        </section>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <script>
         let listaEventosLocales = [];
+        let qrStream = null;
+        let qrActivo = false;
+        let qrFrameId = null;
+
+        async function iniciarEscanerQR() {
+            const video = document.getElementById('qr-video');
+            const status = document.getElementById('qr-status');
+            const resultado = document.getElementById('qr-resultado');
+            resultado.textContent = '';
+
+            if (!navigator.mediaDevices?.getUserMedia) {
+                status.textContent = 'Tu navegador no admite acceso a cámara.';
+                return;
+            }
+
+            try {
+                qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.srcObject = qrStream;
+                await video.play();
+                qrActivo = true;
+                status.textContent = 'Escaneando… apunta al QR del asistente.';
+                escanearFrameQR();
+            } catch (error) {
+                status.textContent = 'No se pudo acceder a la cámara.';
+            }
+        }
+
+        function detenerEscanerQR() {
+            qrActivo = false;
+            if (qrFrameId) cancelAnimationFrame(qrFrameId);
+            if (qrStream) {
+                qrStream.getTracks().forEach(track => track.stop());
+                qrStream = null;
+            }
+            document.getElementById('qr-status').textContent = 'Cámara detenida.';
+        }
+
+        function escanearFrameQR() {
+            const video = document.getElementById('qr-video');
+            const canvas = document.getElementById('qr-canvas');
+            const ctx = canvas.getContext('2d');
+            const resultado = document.getElementById('qr-resultado');
+            const status = document.getElementById('qr-status');
+
+            if (!qrActivo || !video.videoWidth || !video.videoHeight) {
+                if (qrActivo) qrFrameId = requestAnimationFrame(escanearFrameQR);
+                return;
+            }
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = window.jsQR(imageData.data, imageData.width, imageData.height);
+
+            if (code) {
+                resultado.textContent = `QR detectado: ${code.data}`;
+                status.textContent = 'Código QR leído correctamente.';
+                qrActivo = false;
+                return;
+            }
+
+            qrFrameId = requestAnimationFrame(escanearFrameQR);
+        }
 
         // FUNCIÓN DE CIERRE DE SESIÓN DEFINITIVA
         function cerrarSesion() {
             if (confirm("¿Estás seguro de que deseas cerrar sesión y regresar al inicio?")) {
                 localStorage.removeItem('usuario_autenticado');
-                window.location.replace('index.html');
+                localStorage.removeItem('token_ticketera');
+                localStorage.removeItem('usuario_ticketera');
+                window.location.replace('login.html');
             }
+        }
+
+        function encabezadosSesion() {
+            return { Authorization: `Bearer ${localStorage.getItem('token_ticketera')}` };
+        }
+
+        function cargarMetricas() {
+            const entradas = listaEventosLocales.reduce((total, evento) => total + Number(evento.ticketsVendidos || 0), 0);
+            const ingresos = listaEventosLocales.reduce((total, evento) => {
+                const precio = Number(evento.categorias?.[0]?.precio || 0);
+                return total + (precio * Number(evento.ticketsVendidos || 0));
+            }, 0);
+            document.getElementById('metrica-eventos').textContent = listaEventosLocales.length;
+            document.getElementById('metrica-entradas').textContent = entradas;
+            document.getElementById('metrica-ingresos').textContent = `$${ingresos.toLocaleString('es-CL')}`;
         }
 
         const coordenadasComunasBase = {
@@ -237,6 +341,7 @@
             try {
                 const res = await fetch('/api/eventos');
                 listaEventosLocales = await res.json();
+                cargarMetricas();
 
                 const tbody = document.getElementById('tabla-mis-eventos');
                 tbody.innerHTML = '';
@@ -373,7 +478,7 @@
 
                 const res = await fetch(url, {
                     method: metodo,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...encabezadosSesion() },
                     body: JSON.stringify(payload)
                 });
 

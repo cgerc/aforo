@@ -3,6 +3,27 @@ let eventosData = [];
 let carruselIntervalo = null;
 let currentIndex = 0;
 
+function renderizarSesion() {
+    const contenedor = document.getElementById('contenedor-boton-sesion');
+    if (!contenedor) return;
+
+    const usuarioGuardado = localStorage.getItem('usuario_ticketera');
+    let usuario = null;
+    try {
+        usuario = usuarioGuardado ? JSON.parse(usuarioGuardado) : null;
+    } catch (error) {
+        localStorage.removeItem('usuario_ticketera');
+    }
+
+    if (localStorage.getItem('token_ticketera')) {
+        const nombre = usuario?.nombre || 'Organizador';
+        contenedor.innerHTML = `<a href="dashboard.html" class="text-amber-400 hover:text-amber-300 transition">Hola, ${nombre}</a>`;
+        return;
+    }
+
+    contenedor.innerHTML = '<a href="login.html" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black px-4 py-2 rounded-lg transition">Portal de organizadores</a>';
+}
+
 // Redirección al checkout
 function irAlCheckout(id) {
     const eventoSeleccionado = eventosData.find(e => e.id === id);
@@ -218,4 +239,7 @@ async function cargarDatosInicio() {
     renderizarMarcadoresMapa();
 }
 
-document.addEventListener('DOMContentLoaded', cargarDatosInicio);
+document.addEventListener('DOMContentLoaded', () => {
+    renderizarSesion();
+    cargarDatosInicio();
+});

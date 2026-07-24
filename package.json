@@ -9,11 +9,13 @@
   "dependencies": {
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
+    "dotenv": "^17.4.2",
     "express": "^4.22.2",
     "jsonwebtoken": "^9.0.3",
     "mercadopago": "^2.0.11",
     "node-cron": "^3.0.3",
     "nodemailer": "^9.0.3",
+    "pg": "^8.22.0",
     "qrcode": "^1.5.3"
   }
 }

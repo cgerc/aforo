@@ -65,6 +65,12 @@
                 <input type="text" id="event-lugar" placeholder="Lugar o Dirección (Ej: Providencia 1200)" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
                 <textarea id="event-mensaje" placeholder="Descripción del evento" rows="4" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-2xl p-3.5 px-5 text-white outline-none focus:border-amber-500 transition resize-none"></textarea>
             </div>
+
+            <div id="step-verify-fields" class="space-y-4 hidden">
+                <h3 class="text-xl font-bold mb-2 text-zinc-200">Verifica tu correo</h3>
+                <p class="text-sm text-zinc-400">Ingresa el código de 6 dígitos que enviamos a tu correo.</p>
+                <input type="text" id="verify-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" placeholder="Código de verificación" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+            </div>
             
             <!-- Mensajes del Servidor -->
             <div id="error-message" class="text-red-500 text-xs font-bold hidden text-center"></div>
@@ -93,6 +99,10 @@
 
     <!-- CONTROLADOR DE LA LÓGICA E INTERFAZ -->
     <script>
+        if (localStorage.getItem('token_ticketera')) {
+            window.location.replace('dashboard.html');
+        }
+
         const form = document.getElementById('auth-form');
         const errorDiv = document.getElementById('error-message');
         const successDiv = document.getElementById('success-message');
@@ -100,13 +110,15 @@
         const loginFields = document.getElementById('login-fields');
         const stepPersonalFields = document.getElementById('step-personal-fields');
         const stepEventFields = document.getElementById('step-event-fields');
+        const stepVerifyFields = document.getElementById('step-verify-fields');
         
         const btnSubmit = document.getElementById('btn-submit');
         const btnToggleMode = document.getElementById('btn-toggle-mode');
         const btnForgot = document.getElementById('btn-forgot');
         const subtitle = document.getElementById('form-subtitle');
 
-        let currentMode = 'login'; // 'login', 'reg-step1', 'reg-step2'
+        let currentMode = 'login'; // 'login', 'reg-step1', 'reg-step2', 'reg-verify'
+        let pendingEmail = '';
 
         // Cambiar dinámicamente entre Login y el Asistente de Registro
         btnToggleMode.addEventListener('click', () => {
@@ -128,6 +140,7 @@
             loginFields.classList.add('hidden');
             stepPersonalFields.classList.add('hidden');
             stepEventFields.classList.add('hidden');
+            stepVerifyFields.classList.add('hidden');
             btnForgot.classList.remove('invisible');
 
             if (mode === 'login') {
@@ -149,6 +162,12 @@
                 stepEventFields.classList.remove('hidden');
                 btnSubmit.innerText = 'Finalizar Registro';
                 btnToggleMode.innerText = '← Volver al paso anterior';
+                btnForgot.classList.add('invisible');
+            } else if (mode === 'reg-verify') {
+                subtitle.innerText = 'Confirma tu correo electrónico';
+                stepVerifyFields.classList.remove('hidden');
+                btnSubmit.innerText = 'Verificar correo';
+                btnToggleMode.innerText = '¿Ya tienes cuenta? Ingresar';
                 btnForgot.classList.add('invisible');
             }
         }
@@ -220,10 +239,17 @@
 
                 // Petición final de Registro Completo al Servidor
                 executeAuth('/api/auth/register', payload, false);
+            } else if (currentMode === 'reg-verify') {
+                const codigo = document.getElementById('verify-code').value.trim();
+                if (!/^\d{6}$/.test(codigo)) {
+                    showError('Ingresa el código de 6 dígitos recibido por correo.');
+                    return;
+                }
+                executeAuth('/api/auth/verify-email', { email: pendingEmail, codigo }, false, true);
             }
         });
 
-        async function executeAuth(url, bodyData, isLogin) {
+        async function executeAuth(url, bodyData, isLogin, isVerification = false) {
             try {
                 const response = await fetch(url, {
                     method: 'POST',
@@ -239,12 +265,21 @@
 
                 if (isLogin) {
                     localStorage.setItem('token_ticketera', data.token);
+                    localStorage.setItem('usuario_autenticado', 'true');
+                    localStorage.setItem('usuario_ticketera', JSON.stringify(data.usuario));
                     window.location.href = 'dashboard.html';
-                } else {
-                    successDiv.innerText = '¡Cuenta y evento inicial creados con éxito! Ya puedes ingresar.';
+                } else if (isVerification) {
+                    successDiv.innerText = '¡Correo verificado! Ya puedes iniciar sesión.';
                     successDiv.classList.remove('hidden');
                     setMode('login');
                     form.reset();
+                } else {
+                    pendingEmail = bodyData.email;
+                    successDiv.innerText = data.modo === 'local'
+                        ? 'Modo local: revisa la consola del servidor para obtener el código.'
+                        : 'Te enviamos un código de verificación a tu correo.';
+                    successDiv.classList.remove('hidden');
+                    setMode('reg-verify');
                 }
             } catch (err) {
                 showError(err.message);

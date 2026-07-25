@@ -16,8 +16,8 @@
             <p id="form-subtitle" class="text-zinc-400 text-sm mt-2">Ingresa al portal de organizadores</p>
         </div>
 
-        <!-- FORMULARIO PRINCIPAL -->
-        <form id="auth-form" class="space-y-4">
+        <!-- FORMULARIO PRINCIPAL (Se agregó novalidate para evitar bloqueos del navegador en divs ocultos) -->
+        <form id="auth-form" class="space-y-4" novalidate>
             
             <!-- VISTA A: FORMULARIO DE INICIO DE SESIÓN (LOGIN) -->
             <div id="login-fields" class="space-y-4">
@@ -46,11 +46,10 @@
             <!-- VISTA C: PASO 2 - DATOS DE TU EVENTO -->
             <div id="step-event-fields" class="space-y-4 hidden">
                 <h3 class="text-xl font-bold mb-2 text-zinc-200">Datos de tu evento</h3>
-                <input type="text" id="event-nombre" placeholder="Nombre de evento" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <input type="text" id="event-nombre" placeholder="Nombre de evento *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
                 
-                <!-- Dropdown Solicitado -->
                 <select id="event-categoria" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition appearance-none">
-                    <option value="" disabled selected>Selecciona una categoría</option>
+                    <option value="" disabled selected>Selecciona una categoría *</option>
                     <option value="salud mental">Salud Mental</option>
                     <option value="entretenimiento">Entretenimiento</option>
                     <option value="educación">Educación</option>
@@ -62,14 +61,15 @@
                     <input type="time" id="event-hora" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
                 </div>
 
-                <input type="text" id="event-lugar" placeholder="Lugar o Dirección (Ej: Providencia 1200)" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <input type="text" id="event-lugar" placeholder="Lugar o Dirección (Ej: Providencia 1200) *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
                 <textarea id="event-mensaje" placeholder="Descripción del evento" rows="4" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-2xl p-3.5 px-5 text-white outline-none focus:border-amber-500 transition resize-none"></textarea>
             </div>
 
+            <!-- VISTA D: VERIFICACIÓN DE CÓDIGO -->
             <div id="step-verify-fields" class="space-y-4 hidden">
                 <h3 class="text-xl font-bold mb-2 text-zinc-200">Verifica tu correo</h3>
                 <p class="text-sm text-zinc-400">Ingresa el código de 6 dígitos que enviamos a tu correo.</p>
-                <input type="text" id="verify-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" placeholder="Código de verificación" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <input type="text" id="verify-code" inputmode="numeric" maxlength="6" placeholder="Código de verificación" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
             </div>
             
             <!-- Mensajes del Servidor -->
@@ -87,10 +87,10 @@
         <!-- SECCIÓN DE ENLACES INFERIORES -->
         <div class="flex flex-col gap-3 pt-2 text-center text-sm border-t border-zinc-800/60">
             <div class="flex justify-between items-center px-2">
-                <button id="btn-toggle-mode" class="text-amber-500 hover:underline text-xs font-bold uppercase tracking-wider">
+                <button id="btn-toggle-mode" type="button" class="text-amber-500 hover:underline text-xs font-bold uppercase tracking-wider">
                     ¿No tienes cuenta? Crear Cuenta
                 </button>
-                <button id="btn-forgot" class="text-zinc-400 hover:text-white text-xs font-medium">
+                <button id="btn-forgot" type="button" class="text-zinc-400 hover:text-white text-xs font-medium">
                     Olvidé mi contraseña
                 </button>
             </div>
@@ -120,13 +120,15 @@
         let currentMode = 'login'; // 'login', 'reg-step1', 'reg-step2', 'reg-verify'
         let pendingEmail = '';
 
-        // Cambiar dinámicamente entre Login y el Asistente de Registro
+        // Cambiar entre Modos
         btnToggleMode.addEventListener('click', () => {
             errorDiv.classList.add('hidden');
             successDiv.classList.add('hidden');
             
             if (currentMode === 'login') {
                 setMode('reg-step1');
+            } else if (currentMode === 'reg-step2') {
+                setMode('reg-step1'); // Regresa al paso 1 en lugar de ir a login
             } else {
                 setMode('login');
             }
@@ -145,7 +147,6 @@
 
             if (mode === 'login') {
                 subtitle.innerText = 'Ingresa al portal de organizadores';
-                loginFields.classList.remove('remove');
                 loginFields.classList.remove('hidden');
                 btnSubmit.innerText = 'Siguiente';
                 btnToggleMode.innerText = '¿No tienes cuenta? Crear Cuenta';
@@ -172,74 +173,79 @@
             }
         }
 
-        // Simulación básica de Olvidé mi Contraseña
+        // Olvidé mi Contraseña
         btnForgot.addEventListener('click', () => {
             errorDiv.classList.add('hidden');
             successDiv.classList.remove('hidden');
             successDiv.innerText = 'Se envió un enlace para reestablecer la clave a tu correo.';
         });
 
-        // Intercepción del Submit del Formulario
+        // Submit del Formulario
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             errorDiv.classList.add('hidden');
             successDiv.classList.add('hidden');
 
             if (currentMode === 'login') {
-                const email = document.getElementById('login-email').value;
+                const email = document.getElementById('login-email').value.trim();
                 const password = document.getElementById('login-password').value;
 
-                if(!email || !password) {
+                if (!email || !password) {
                     showError('Por favor completa las credenciales.');
                     return;
                 }
 
-                // Petición de Login al Servidor
                 executeAuth('/api/auth/login', { email, password }, true);
             } 
             else if (currentMode === 'reg-step1') {
-                // Validación básica de campos obligatorios del paso 1
-                if(!document.getElementById('reg-nombre').value || 
-                   !document.getElementById('reg-apellido').value || 
-                   !document.getElementById('reg-empresa').value || 
-                   !document.getElementById('reg-password').value || 
-                   !document.getElementById('reg-email').value) {
+                const nombre = document.getElementById('reg-nombre').value.trim();
+                const apellido = document.getElementById('reg-apellido').value.trim();
+                const empresa = document.getElementById('reg-empresa').value.trim();
+                const email = document.getElementById('reg-email').value.trim();
+                const password = document.getElementById('reg-password').value;
+
+                if (!nombre || !apellido || !empresa || !password || !email) {
                     showError('Por favor rellena todos los campos obligatorios (*).');
                     return;
                 }
-                // Avanza al paso de datos del evento
+
+                if (password.length < 6) {
+                    showError('La contraseña debe tener al menos 6 caracteres.');
+                    return;
+                }
+
                 setMode('reg-step2');
             } 
             else if (currentMode === 'reg-step2') {
-                // Validación básica paso 2
-                if(!document.getElementById('event-nombre').value || 
-                   !document.getElementById('event-categoria').value || 
-                   !document.getElementById('event-lugar').value) {
+                const eventNombre = document.getElementById('event-nombre').value.trim();
+                const eventCategoria = document.getElementById('event-categoria').value;
+                const eventLugar = document.getElementById('event-lugar').value.trim();
+
+                if (!eventNombre || !eventCategoria || !eventLugar) {
                     showError('El nombre, la categoría y el lugar del evento son requeridos.');
                     return;
                 }
 
-                // Recopilación de toda la data estructurada
                 const payload = {
-                    nombre: document.getElementById('reg-nombre').value,
-                    apellido: document.getElementById('reg-apellido').value,
-                    empresa: document.getElementById('reg-empresa').value,
-                    email: document.getElementById('reg-email').value,
+                    nombre: document.getElementById('reg-nombre').value.trim(),
+                    apellido: document.getElementById('reg-apellido').value.trim(),
+                    empresa: document.getElementById('reg-empresa').value.trim(),
+                    email: document.getElementById('reg-email').value.trim(),
                     password: document.getElementById('reg-password').value,
-                    telefono: document.getElementById('reg-telefono').value,
+                    telefono: document.getElementById('reg-telefono').value.trim(),
                     evento: {
-                        titulo: document.getElementById('event-nombre').value,
-                        categoria: document.getElementById('event-categoria').value,
+                        titulo: eventNombre,
+                        categoria: eventCategoria,
                         fecha: document.getElementById('event-fecha').value,
                         hora: document.getElementById('event-hora').value,
-                        lugar: document.getElementById('event-lugar').value,
-                        mensaje: document.getElementById('event-mensaje').value
+                        lugar: eventLugar,
+                        mensaje: document.getElementById('event-mensaje').value.trim()
                     }
                 };
 
-                // Petición final de Registro Completo al Servidor
                 executeAuth('/api/auth/register', payload, false);
-            } else if (currentMode === 'reg-verify') {
+            } 
+            else if (currentMode === 'reg-verify') {
                 const codigo = document.getElementById('verify-code').value.trim();
                 if (!/^\d{6}$/.test(codigo)) {
                     showError('Ingresa el código de 6 dígitos recibido por correo.');
@@ -250,6 +256,9 @@
         });
 
         async function executeAuth(url, bodyData, isLogin, isVerification = false) {
+            btnSubmit.disabled = true;
+            btnSubmit.classList.add('opacity-50');
+
             try {
                 const response = await fetch(url, {
                     method: 'POST',
@@ -283,6 +292,9 @@
                 }
             } catch (err) {
                 showError(err.message);
+            } finally {
+                btnSubmit.disabled = false;
+                btnSubmit.classList.remove('opacity-50');
             }
         }
 

@@ -1,3 +1,6 @@
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
+
 require('dotenv').config();
 const express = require('express');
 const bcrypt = require('bcryptjs');
@@ -8,7 +11,7 @@ const { pool, initDb } = require('./db');
 const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
-const SMTP_USER = process.env.SMTP_USER || 'homefree.cl@gmail.com';
+const SMTP_USER = process.env.SMTP_USER || 'contacto@viveticket.cl';
 const SMTP_PASS = (process.env.SMTP_PASS || '').replace(/\s/g, '');
 
 const transporteCorreo = SMTP_PASS
@@ -25,13 +28,33 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static('public'));
 
+// Función auxiliar para parsear categorías de forma segura
+function parseCategorias(categorias) {
+  if (!categorias) return [];
+  if (typeof categorias === 'string') {
+    try {
+      return JSON.parse(categorias);
+    } catch (e) {
+      return [];
+    }
+  }
+  return categorias;
+}
+
 function crearToken(usuario) {
   return jwt.sign({ id: usuario.id, email: usuario.email }, JWT_SECRET, { expiresIn: '8h' });
 }
 
 function autenticar(req, res, next) {
   const encabezado = req.headers.authorization || '';
-  const token = encabezado.startsWith('Bearer ') ? encabezado.slice(7) : '';
+  if (!encabezado.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Token de autorización no provisto o formato inválido.' });
+  }
+
+  const token = encabezado.slice(7).trim();
+  if (!token) {
+    return res.status(401).json({ error: 'Token no válido.' });
+  }
 
   try {
     req.usuario = jwt.verify(token, JWT_SECRET);
@@ -47,12 +70,16 @@ async function enviarCodigoVerificacion(email, codigo) {
     return { enviado: false, modo: 'local' };
   }
 
+  // Se define la etiqueta con el nombre de marca "Vive Ticket" para Zoho Mail
+  const remitente = process.env.SMTP_FROM || `"Vive Ticket" <${SMTP_USER}>`;
+
   await transporteCorreo.sendMail({
-    from: process.env.SMTP_FROM || SMTP_USER,
+    from: remitente,
     to: email,
-    subject: 'Código de verificación de Vive Ticket',
+    subject: 'Código de verificación - Vive Ticket',
     text: `Tu código de verificación es ${codigo}. Expira en 15 minutos.`
   });
+
   return { enviado: true, modo: 'smtp' };
 }
 
@@ -86,33 +113,45 @@ async function obtenerEventosBase() {
     ...evento,
     ticketsVendidos: evento.tickets_vendidos,
     ticketsMax: evento.tickets_max,
-    categorias: evento.categorias || []
+    categorias: parseCategorias(evento.categorias)
   }));
 }
 
 async function actualizarEventoBase(id, cambios) {
   const result = await pool.query(
     `UPDATE eventos
-     SET titulo = COALESCE($1, titulo), descripcion = COALESCE($2, descripcion), fecha = COALESCE($3, fecha), categoria = COALESCE($4, categoria), comuna = COALESCE($5, comuna), direccion = COALESCE($6, direccion), lat = COALESCE($7, lat), lng = COALESCE($8, lng), imagen = COALESCE($9, imagen), tickets_max = COALESCE($10, tickets_max), categorias = COALESCE($11, categorias)
+     SET titulo = COALESCE($1, titulo), 
+         descripcion = COALESCE($2, descripcion), 
+         fecha = COALESCE($3, fecha), 
+         categoria = COALESCE($4, categoria), 
+         comuna = COALESCE($5, comuna), 
+         direccion = COALESCE($6, direccion), 
+         lat = COALESCE($7, lat), 
+         lng = COALESCE($8, lng), 
+         imagen = COALESCE($9, imagen), 
+         tickets_max = COALESCE($10, tickets_max), 
+         categorias = COALESCE($11, categorias)
      WHERE id = $12
      RETURNING *`,
     [
-      cambios.titulo,
-      cambios.descripcion,
-      cambios.fecha,
-      cambios.categoria,
-      cambios.comuna,
-      cambios.direccion,
-      cambios.lat,
-      cambios.lng,
-      cambios.imagen,
-      cambios.ticketsMax,
+      cambios.titulo ?? null,
+      cambios.descripcion ?? null,
+      cambios.fecha ?? null,
+      cambios.categoria ?? null,
+      cambios.comuna ?? null,
+      cambios.direccion ?? null,
+      cambios.lat ?? null,
+      cambios.lng ?? null,
+      cambios.imagen ?? null,
+      cambios.ticketsMax ?? null,
       cambios.categorias ? JSON.stringify(cambios.categorias) : null,
       id
     ]
   );
   return result.rows[0];
 }
+
+// --- RUTAS DE AUTENTICACIÓN ---
 
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -125,6 +164,7 @@ app.post('/api/auth/register', async (req, res) => {
     if (password.length < 6) {
       return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
     }
+
     const existe = await pool.query('SELECT 1 FROM usuarios WHERE email = $1', [emailNormalizado]);
     if (existe.rowCount > 0) {
       return res.status(409).json({ error: 'Ya existe una cuenta con ese correo.' });
@@ -132,112 +172,144 @@ app.post('/api/auth/register', async (req, res) => {
 
     const codigo = String(crypto.randomInt(100000, 1000000));
     const passwordHash = await bcrypt.hash(password, 10);
-    const registro = {
-      nombre,
-      apellido,
-      empresa,
-      email: emailNormalizado,
-      telefono: telefono || '',
-      password: passwordHash,
-      evento,
-      codigo: await bcrypt.hash(codigo, 10),
-      expira: Date.now() + (15 * 60 * 1000)
-    };
+
+    let eventoSanitizado = null;
+    if (evento) {
+      eventoSanitizado = typeof evento === 'string' ? evento : JSON.stringify(evento);
+    }
+
+    const expiraTiempo = Date.now() + (15 * 60 * 1000);
 
     await pool.query(
       `INSERT INTO registros_pendientes (email, nombre, apellido, empresa, telefono, password, evento, codigo, expira)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (email) DO UPDATE SET nombre = EXCLUDED.nombre, apellido = EXCLUDED.apellido, empresa = EXCLUDED.empresa, telefono = EXCLUDED.telefono, password = EXCLUDED.password, evento = EXCLUDED.evento, codigo = EXCLUDED.codigo, expira = EXCLUDED.expira`,
-      [emailNormalizado, registro.nombre, registro.apellido, registro.empresa, registro.telefono, registro.password, JSON.stringify(registro.evento || null), registro.codigo, registro.expira]
+       ON CONFLICT (email) DO UPDATE SET 
+         nombre = EXCLUDED.nombre, 
+         apellido = EXCLUDED.apellido, 
+         empresa = EXCLUDED.empresa, 
+         telefono = EXCLUDED.telefono, 
+         password = EXCLUDED.password, 
+         evento = EXCLUDED.evento, 
+         codigo = EXCLUDED.codigo, 
+         expira = EXCLUDED.expira`,
+      [
+        emailNormalizado, 
+        nombre, 
+        apellido, 
+        empresa, 
+        telefono || '', 
+        passwordHash, 
+        eventoSanitizado, 
+        await bcrypt.hash(codigo, 10), 
+        expiraTiempo
+      ]
     );
 
-    const entrega = await enviarCodigoVerificacion(emailNormalizado, codigo);
+    let entrega = { enviado: false, modo: 'local' };
+    try {
+      entrega = await enviarCodigoVerificacion(emailNormalizado, codigo);
+    } catch (mailError) {
+      console.warn('[SMTP WARNING] No se pudo enviar el correo, pero el registro se guardó:', mailError.message);
+    }
 
-    res.status(202).json({
+    return res.status(202).json({
       mensaje: entrega.enviado
         ? 'Te enviamos un código de verificación.'
-        : 'Modo local: revisa la consola del servidor para ver el código.',
-      modo: entrega.modo
+        : 'Código generado (Revisa consola o SMTP).',
+      modo: entrega.modo,
+      email: emailNormalizado
     });
+
   } catch (error) {
-    console.error('[REGISTRO]', error.message);
-    if (error.code === 'EAUTH') {
-      return res.status(502).json({ error: 'Gmail rechazó la autenticación. Revisa la contraseña de aplicación y vuelve a intentarlo.' });
-    }
-    res.status(500).json({ error: 'No fue posible enviar el código de verificación.' });
+    console.error('[REGISTRO ERROR DETALLADO]:', error);
+    return res.status(500).json({ error: 'No fue posible procesar el registro.' });
   }
 });
 
 app.post('/api/auth/verify-email', async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
-  const codigo = String(req.body.codigo || '').trim();
-  const pendienteResult = await pool.query('SELECT * FROM registros_pendientes WHERE email = $1', [email]);
-  const registro = pendienteResult.rows[0];
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const codigo = String(req.body.codigo || '').trim();
+    const pendienteResult = await pool.query('SELECT * FROM registros_pendientes WHERE email = $1', [email]);
+    const registro = pendienteResult.rows[0];
 
-  if (!registro || Number(registro.expira) < Date.now()) {
+    if (!registro || Number(registro.expira) < Date.now()) {
+      await pool.query('DELETE FROM registros_pendientes WHERE email = $1', [email]);
+      return res.status(400).json({ error: 'El código expiró. Registra la cuenta nuevamente.' });
+    }
+    if (!/^\d{6}$/.test(codigo) || !(await bcrypt.compare(codigo, registro.codigo))) {
+      return res.status(400).json({ error: 'El código de verificación es incorrecto.' });
+    }
+
+    const usuarioResult = await pool.query(
+      `INSERT INTO usuarios (nombre, apellido, empresa, email, telefono, password, verificado)
+       VALUES ($1, $2, $3, $4, $5, $6, true)
+       RETURNING id, nombre, apellido, empresa, email, telefono, password, verificado`,
+      [registro.nombre, registro.apellido, registro.empresa, registro.email, registro.telefono, registro.password]
+    );
+    const usuario = usuarioResult.rows[0];
     await pool.query('DELETE FROM registros_pendientes WHERE email = $1', [email]);
-    return res.status(400).json({ error: 'El código expiró. Registra la cuenta nuevamente.' });
-  }
-  if (!/^\d{6}$/.test(codigo) || !(await bcrypt.compare(codigo, registro.codigo))) {
-    return res.status(400).json({ error: 'El código de verificación es incorrecto.' });
-  }
 
-  const usuarioResult = await pool.query(
-    `INSERT INTO usuarios (nombre, apellido, empresa, email, telefono, password, verificado)
-     VALUES ($1, $2, $3, $4, $5, $6, true)
-     RETURNING id, nombre, apellido, empresa, email, telefono, password, verificado`,
-    [registro.nombre, registro.apellido, registro.empresa, registro.email, registro.telefono, registro.password]
-  );
-  const usuario = usuarioResult.rows[0];
-  await pool.query('DELETE FROM registros_pendientes WHERE email = $1', [email]);
+    const eventoData = typeof registro.evento === 'string' ? JSON.parse(registro.evento) : registro.evento;
 
-  if (registro.evento && registro.evento.titulo) {
-    await insertarEventoBase({
-      usuario_id: usuario.id,
-      titulo: registro.evento.titulo,
-      descripcion: registro.evento.mensaje || 'Sin descripción',
-      fecha: registro.evento.fecha && registro.evento.hora ? `${registro.evento.fecha}T${registro.evento.hora}` : registro.evento.fecha || '2026-07-31T20:00',
-      categoria: registro.evento.categoria || 'Salud mental',
-      comuna: 'providencia',
-      direccion: registro.evento.lugar || '',
-      lat: -33.435,
-      lng: -70.620,
-      imagen: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=800',
-      ticketsVendidos: 0,
-      ticketsMax: 40,
-      categorias: [{ nombre: 'General', precio: 15000, cupos: 40 }]
-    });
+    if (eventoData && eventoData.titulo) {
+      await insertarEventoBase({
+        usuario_id: usuario.id,
+        titulo: eventoData.titulo,
+        descripcion: eventoData.mensaje || 'Sin descripción',
+        fecha: eventoData.fecha && eventoData.hora ? `${eventoData.fecha}T${eventoData.hora}` : eventoData.fecha || '2026-07-31T20:00',
+        categoria: eventoData.categoria || 'Salud mental',
+        comuna: 'providencia',
+        direccion: eventoData.lugar || '',
+        lat: -33.435,
+        lng: -70.620,
+        imagen: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=800',
+        ticketsVendidos: 0,
+        ticketsMax: 40,
+        categorias: [{ nombre: 'General', precio: 15000, cupos: 40 }]
+      });
+    }
+
+    res.status(201).json({ mensaje: 'Correo verificado. Ya puedes iniciar sesión.' });
+  } catch (error) {
+    console.error('[VERIFICAR EMAIL]', error.message);
+    res.status(500).json({ error: 'Error interno al verificar el correo.' });
   }
-
-  res.status(201).json({ mensaje: 'Correo verificado. Ya puedes iniciar sesión.' });
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
-  const password = String(req.body.password || '');
-  const pendienteResult = await pool.query('SELECT 1 FROM registros_pendientes WHERE email = $1', [email]);
-  if (pendienteResult.rowCount > 0) {
-    return res.status(403).json({ error: 'Debes verificar tu correo antes de entrar al portal.' });
-  }
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
+    const pendienteResult = await pool.query('SELECT 1 FROM registros_pendientes WHERE email = $1', [email]);
+    if (pendienteResult.rowCount > 0) {
+      return res.status(403).json({ error: 'Debes verificar tu correo antes de entrar al portal.' });
+    }
 
-  const usuarioResult = await pool.query('SELECT * FROM usuarios WHERE email = $1', [email]);
-  const usuario = usuarioResult.rows[0];
+    const usuarioResult = await pool.query('SELECT * FROM usuarios WHERE email = $1', [email]);
+    const usuario = usuarioResult.rows[0];
 
-  if (!usuario) {
-    return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
-  }
-  if (!usuario.verificado) {
-    return res.status(403).json({ error: 'Debes verificar tu correo antes de entrar al portal.' });
-  }
-  if (!(await bcrypt.compare(password, usuario.password))) {
-    return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
-  }
+    if (!usuario) {
+      return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
+    }
+    if (!usuario.verificado) {
+      return res.status(403).json({ error: 'Debes verificar tu correo antes de entrar al portal.' });
+    }
+    if (!(await bcrypt.compare(password, usuario.password))) {
+      return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
+    }
 
-  res.json({
-    token: crearToken(usuario),
-    usuario: { nombre: usuario.nombre, apellido: usuario.apellido, empresa: usuario.empresa, email: usuario.email }
-  });
+    res.json({
+      token: crearToken(usuario),
+      usuario: { id: usuario.id, nombre: usuario.nombre, apellido: usuario.apellido, empresa: usuario.empresa, email: usuario.email }
+    });
+  } catch (error) {
+    console.error('[LOGIN]', error.message);
+    res.status(500).json({ error: 'Error interno al iniciar sesión.' });
+  }
 });
+
+// --- RUTAS DE EVENTOS ---
 
 // Obtener todos los eventos
 app.get('/api/eventos', async (req, res) => {
@@ -272,12 +344,15 @@ app.post('/api/eventos', autenticar, async (req, res) => {
     });
 
     console.log(`[EVENTO CREADO] "${nuevoEvento.titulo}" | Fecha: ${nuevoEvento.fecha}`);
-    res.status(201).json({ mensaje: "Evento creado exitosamente", evento: {
-      ...nuevoEvento,
-      ticketsVendidos: nuevoEvento.tickets_vendidos,
-      ticketsMax: nuevoEvento.tickets_max,
-      categorias: nuevoEvento.categorias || []
-    }});
+    res.status(201).json({
+      mensaje: "Evento creado exitosamente",
+      evento: {
+        ...nuevoEvento,
+        ticketsVendidos: nuevoEvento.tickets_vendidos,
+        ticketsMax: nuevoEvento.tickets_max,
+        categorias: parseCategorias(nuevoEvento.categorias)
+      }
+    });
   } catch (error) {
     console.error('[CREAR EVENTO]', error.message);
     res.status(500).json({ error: "Error interno al crear el evento." });
@@ -288,10 +363,15 @@ app.post('/api/eventos', autenticar, async (req, res) => {
 app.put('/api/eventos/:id', autenticar, async (req, res) => {
   try {
     const eventoId = parseInt(req.params.id);
-    const existente = await pool.query('SELECT id FROM eventos WHERE id = $1', [eventoId]);
+    const existente = await pool.query('SELECT usuario_id FROM eventos WHERE id = $1', [eventoId]);
 
     if (existente.rowCount === 0) {
       return res.status(404).json({ error: "Evento no encontrado." });
+    }
+
+    // Validación de propiedad: solo el creador puede editarlo
+    if (existente.rows[0].usuario_id && existente.rows[0].usuario_id !== req.usuario.id) {
+      return res.status(403).json({ error: "No tienes permiso para modificar este evento." });
     }
 
     const { titulo, descripcion, fecha, categoria, comuna, direccion, lat, lng, imagen, categorias, ticketsMax } = req.body;
@@ -303,25 +383,30 @@ app.put('/api/eventos/:id', autenticar, async (req, res) => {
       categoria,
       comuna,
       direccion,
-      lat: lat ? parseFloat(lat) : undefined,
-      lng: lng ? parseFloat(lng) : undefined,
+      lat: lat !== undefined ? parseFloat(lat) : undefined,
+      lng: lng !== undefined ? parseFloat(lng) : undefined,
       imagen,
       categorias,
-      ticketsMax: ticketsMax ? parseInt(ticketsMax) : undefined
+      ticketsMax: ticketsMax !== undefined ? parseInt(ticketsMax) : undefined
     });
 
     console.log(`[EVENTO ACTUALIZADO] ID: ${eventoId} | Nueva Fecha: ${eventoActualizado.fecha}`);
-    res.json({ mensaje: "Evento actualizado correctamente", evento: {
-      ...eventoActualizado,
-      ticketsVendidos: eventoActualizado.tickets_vendidos,
-      ticketsMax: eventoActualizado.tickets_max,
-      categorias: eventoActualizado.categorias || []
-    }});
+    res.json({
+      mensaje: "Evento actualizado correctamente",
+      evento: {
+        ...eventoActualizado,
+        ticketsVendidos: eventoActualizado.tickets_vendidos,
+        ticketsMax: eventoActualizado.tickets_max,
+        categorias: parseCategorias(eventoActualizado.categorias)
+      }
+    });
   } catch (error) {
     console.error('[ACTUALIZAR EVENTO]', error.message);
     res.status(500).json({ error: "Error interno al actualizar el evento." });
   }
 });
+
+// --- INICIALIZACIÓN ---
 
 async function iniciarServidor() {
   await initDb();

@@ -228,10 +228,22 @@ async function cargarDatosInicio() {
     inicializarMapa();
 
     try {
-        const res = await fetch('/api/eventos');
-        eventosData = await res.json();
+        const res = await fetch('/api/eventos', { headers: { Accept: 'application/json' } });
+        const textoRespuesta = await res.text();
+
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${textoRespuesta.slice(0, 300)}`);
+        }
+
+        try {
+            eventosData = JSON.parse(textoRespuesta || '[]');
+        } catch (parseError) {
+            console.error('La API de eventos no devolvió JSON válido:', textoRespuesta.slice(0, 500));
+            eventosData = [];
+        }
     } catch (error) {
-        console.error("Error al cargar eventos:", error);
+        console.error('Error al cargar eventos:', error);
+        eventosData = [];
     }
 
     renderizarCarruselSuperior();

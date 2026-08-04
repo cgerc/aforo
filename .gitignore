@@ -1,3 +1,9 @@
+# Variables locales y secretos
 .env
 .env.*
 !.env.example
+
+# Archivos de entorno locales adicionales
+.env.local
+.env.development.local
+.env.production.local

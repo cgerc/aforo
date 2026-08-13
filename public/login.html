@@ -16,7 +16,7 @@
             <p id="form-subtitle" class="text-zinc-400 text-sm mt-2">Ingresa al portal de organizadores</p>
         </div>
 
-        <!-- FORMULARIO PRINCIPAL (Se agregó novalidate para evitar bloqueos del navegador en divs ocultos) -->
+        <!-- FORMULARIO PRINCIPAL -->
         <form id="auth-form" class="space-y-4" novalidate>
             
             <!-- VISTA A: FORMULARIO DE INICIO DE SESIÓN (LOGIN) -->
@@ -34,7 +34,6 @@
             <!-- VISTA B: PASO 1 - DATOS PERSONALES -->
             <div id="step-personal-fields" class="space-y-4 hidden">
                 <h3 class="text-xl font-bold mb-2 text-zinc-200">Datos personales</h3>
-                
                 <input type="text" id="reg-nombre" placeholder="Nombre *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
                 <input type="text" id="reg-apellido" placeholder="Apellido *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
                 <input type="text" id="reg-empresa" placeholder="Empresa/Productora *" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
@@ -68,8 +67,15 @@
             <!-- VISTA D: VERIFICACIÓN DE CÓDIGO -->
             <div id="step-verify-fields" class="space-y-4 hidden">
                 <h3 class="text-xl font-bold mb-2 text-zinc-200">Verifica tu correo</h3>
-                <p class="text-sm text-zinc-400">Ingresa el código de 6 dígitos que enviamos a tu correo.</p>
-                <input type="text" id="verify-code" inputmode="numeric" maxlength="6" placeholder="Código de verificación" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition">
+                <p class="text-sm text-zinc-400">Ingresa el código de 6 dígitos enviado a tu correo.</p>
+                <input type="text" id="verify-code" inputmode="numeric" maxlength="6" placeholder="Código de verificación" class="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-full p-3.5 px-5 text-white outline-none focus:border-amber-500 transition text-center text-lg font-mono tracking-widest">
+                
+                <!-- BOTÓN PARA REENVIAR CÓDIGO -->
+                <div class="text-center pt-1">
+                    <button type="button" id="btn-resend-code" class="text-xs text-amber-500 hover:underline font-semibold">
+                        ¿No recibiste el código? Solicitar uno nuevo
+                    </button>
+                </div>
             </div>
             
             <!-- Mensajes del Servidor -->
@@ -115,9 +121,10 @@
         const btnSubmit = document.getElementById('btn-submit');
         const btnToggleMode = document.getElementById('btn-toggle-mode');
         const btnForgot = document.getElementById('btn-forgot');
+        const btnResendCode = document.getElementById('btn-resend-code');
         const subtitle = document.getElementById('form-subtitle');
 
-        let currentMode = 'login'; // 'login', 'reg-step1', 'reg-step2', 'reg-verify'
+        let currentMode = 'login';
         let pendingEmail = '';
 
         // Cambiar entre Modos
@@ -128,7 +135,7 @@
             if (currentMode === 'login') {
                 setMode('reg-step1');
             } else if (currentMode === 'reg-step2') {
-                setMode('reg-step1'); // Regresa al paso 1 en lugar de ir a login
+                setMode('reg-step1');
             } else {
                 setMode('login');
             }
@@ -138,7 +145,6 @@
             currentMode = mode;
             errorDiv.classList.add('hidden');
 
-            // Reset de visibilidad
             loginFields.classList.add('hidden');
             stepPersonalFields.classList.add('hidden');
             stepEventFields.classList.add('hidden');
@@ -148,7 +154,7 @@
             if (mode === 'login') {
                 subtitle.innerText = 'Ingresa al portal de organizadores';
                 loginFields.classList.remove('hidden');
-                btnSubmit.innerText = 'Siguiente';
+                btnSubmit.innerText = 'Ingresar';
                 btnToggleMode.innerText = '¿No tienes cuenta? Crear Cuenta';
             } 
             else if (mode === 'reg-step1') {
@@ -173,6 +179,15 @@
             }
         }
 
+        // Reenviar código de verificación
+        btnResendCode.addEventListener('click', async () => {
+            if (!pendingEmail) {
+                showError('No hay un correo registrado para reenviar el código.');
+                return;
+            }
+            executeAuth('/api/auth/resend-code', { email: pendingEmail }, false, false, true);
+        });
+
         // Olvidé mi Contraseña
         btnForgot.addEventListener('click', () => {
             errorDiv.classList.add('hidden');
@@ -195,6 +210,7 @@
                     return;
                 }
 
+                pendingEmail = email; // Se guarda para ser usado si requiere verificación
                 executeAuth('/api/auth/login', { email, password }, true);
             } 
             else if (currentMode === 'reg-step1') {
@@ -255,7 +271,8 @@
             }
         });
 
-        async function executeAuth(url, bodyData, isLogin, isVerification = false) {
+        // FUNCION DE AUTENTICACIÓN
+        async function executeAuth(url, bodyData, isLogin, isVerification = false, isResend = false) {
             btnSubmit.disabled = true;
             btnSubmit.classList.add('opacity-50');
 
@@ -266,9 +283,21 @@
                     body: JSON.stringify(bodyData)
                 });
 
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error(`El servidor no respondió en JSON (${response.status}). Revisa que la ruta ${url} esté declarada en server.js.`);
+                }
+
                 const data = await response.json();
 
                 if (!response.ok) {
+                    // MEJORA: Detecta si el error de login es por falta de verificación de correo
+                    if (isLogin && (response.status === 403 || data.error?.toLowerCase().includes('verific'))) {
+                        successDiv.innerText = 'Tu cuenta aún no está verificada. Ingresa el código recibido.';
+                        successDiv.classList.remove('hidden');
+                        setMode('reg-verify');
+                        return;
+                    }
                     throw new Error(data.error || 'Ocurrió un error en el sistema.');
                 }
 
@@ -278,10 +307,13 @@
                     localStorage.setItem('usuario_ticketera', JSON.stringify(data.usuario));
                     window.location.href = 'dashboard.html';
                 } else if (isVerification) {
-                    successDiv.innerText = '¡Correo verificado! Ya puedes iniciar sesión.';
+                    successDiv.innerText = '¡Correo verificado con éxito! Ya puedes iniciar sesión.';
                     successDiv.classList.remove('hidden');
                     setMode('login');
                     form.reset();
+                } else if (isResend) {
+                    successDiv.innerText = 'Se ha reexpedido un nuevo código a tu correo.';
+                    successDiv.classList.remove('hidden');
                 } else {
                     pendingEmail = bodyData.email;
                     successDiv.innerText = data.modo === 'local'

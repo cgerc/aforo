@@ -2,8 +2,16 @@
 .env
 .env.*
 !.env.example
-
+*.log
 # Archivos de entorno locales adicionales
 .env.local
 .env.development.local
 .env.production.local
+
+
+# Dependencias de Node.js
+node_modules/
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db

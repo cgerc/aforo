@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Ticketera interactiva con Mercado Pago, QR y Validador",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
@@ -16,8 +17,9 @@
     "jsonwebtoken": "^9.0.3",
     "mercadopago": "^2.13.0",
     "node-cron": "^3.0.3",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^9.0.5",
     "pg": "^8.22.0",
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.3",
+    "resend": "^6.18.1"
   }
 }

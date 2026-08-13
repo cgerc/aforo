@@ -242,7 +242,6 @@
             qrFrameId = requestAnimationFrame(escanearFrameQR);
         }
 
-        // FUNCIÓN DE CIERRE DE SESIÓN DEFINITIVA
         function cerrarSesion() {
             if (confirm("¿Estás seguro de que deseas cerrar sesión y regresar al inicio?")) {
                 localStorage.removeItem('usuario_autenticado');
@@ -339,12 +338,25 @@
 
         async function cargarMisEventos() {
             try {
-                const res = await fetch('/api/eventos');
+                const res = await fetch('/api/eventos', {
+                    headers: { ...encabezadosSesion() }
+                });
+                
+                if (!res.ok) {
+                    console.error("No se pudieron cargar los eventos del servidor");
+                    return;
+                }
+
                 listaEventosLocales = await res.json();
                 cargarMetricas();
 
                 const tbody = document.getElementById('tabla-mis-eventos');
                 tbody.innerHTML = '';
+
+                if (!Array.isArray(listaEventosLocales) || listaEventosLocales.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-gray-500">No tienes eventos publicados.</td></tr>`;
+                    return;
+                }
 
                 listaEventosLocales.forEach(ev => {
                     const flyerImg = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=100';
@@ -358,7 +370,7 @@
                                 <span class="block text-xs text-gray-500 font-normal line-clamp-1">${ev.descripcion || 'Sin descripción'}</span>
                             </td>
                             <td class="py-3"><span class="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-bold">${ev.categoria}</span></td>
-                            <td class="py-3 text-xs text-gray-500">${ev.direccion || ''} (${ev.comuna})</td>
+                            <td class="py-3 text-xs text-gray-500">${ev.direccion || ''} (${ev.comuna || ''})</td>
                             <td class="py-3 text-center">
                                 <button onclick="prepararEdicion(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
                                     ✏️ Editar
@@ -482,18 +494,21 @@
                     body: JSON.stringify(payload)
                 });
 
+                const data = await res.json().catch(() => ({}));
+
                 if (res.ok) {
                     alert(esEdicion ? "¡Evento actualizado exitosamente!" : "¡Evento publicado exitosamente!");
                     resetearFormulario();
                     cargarMisEventos();
                 } else {
-                    alert("Ocurrió un error en la solicitud.");
+                    alert(`Error (${res.status}): ${data.error || 'Ocurrió un error en la solicitud.'}`);
                 }
             } catch (error) {
                 console.error(error);
-                alert("Error de conexión.");
+                alert("Error de conexión con el servidor.");
             } finally {
                 btn.disabled = false;
+                if (!esEdicion) btn.innerText = "🚀 PUBLICAR EVENTO";
             }
         });
 

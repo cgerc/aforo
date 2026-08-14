@@ -256,7 +256,8 @@ app.post('/api/create-preference', async (req, res) => {
     // 1) Crear orden PENDIENTE en BD
     const order = await createOrder({ user_id: user_id || null, taller_id: taller_id || null, cantidad: Number(cantidad) || 1, preference_id: null });
 
-    // Configurar URL del webhook dinámicamente si existe en .env
+    // Definir URLs dinámicas usando las variables de entorno
+    const clientUrl = process.env.CLIENT_URL || `https://${req.get('host')}`;
     const webhookUrl = process.env.WEBHOOK_URL || null;
 
     // 2) Crear preferencia en Mercado Pago usando SDK v2
@@ -278,10 +279,11 @@ app.post('/api/create-preference', async (req, res) => {
         },
         external_reference: String(order.id),
         back_urls: {
-          success: `http://127.0.0.1:${port}/confirmacion.html?order_id=${order.id}`,
-          failure: `http://127.0.0.1:${port}/checkout.html`,
-          pending: `http://127.0.0.1:${port}/checkout.html`
-        }
+          success: `${clientUrl}/confirmacion.html?order_id=${order.id}`,
+          failure: `${clientUrl}/checkout.html`,
+          pending: `${clientUrl}/checkout.html`
+        },
+        auto_return: 'approved'
       }
     };
 
@@ -292,7 +294,11 @@ app.post('/api/create-preference', async (req, res) => {
     const preferenceResult = await preference.create(preferencePayload);
 
     // 3) Guardar preference_id en la orden local y en Supabase si aplica
-    await pool.query(`UPDATE ordenes SET preference_id = $1 WHERE id = $2`, [preferenceResult.id, order.id]);
+    try {
+      if (pool) await pool.query(`UPDATE ordenes SET preference_id = $1 WHERE id = $2`, [preferenceResult.id, order.id]);
+    } catch (e) {
+      console.warn('No se pudo actualizar DB local pool:', e.message);
+    }
 
     if (supabase) {
       await supabase.from('ordenes').update({ preference_id: preferenceResult.id }).eq('id', order.id);
@@ -312,16 +318,27 @@ async function processOrderPayment(orderId, tallerId, cantidad) {
   // Generar qr_token (JWT sin expiración por fecha)
   const token = jwt.sign({ order_id: orderId, taller_id: tallerId }, qrSecret);
 
-  // Marcar orden como PAGADA en la base de datos
-  await markOrderPaid(orderId, token);
+  // Marcar orden como PAGADA en la base de datos local si existe pool
+  try {
+    if (pool) await markOrderPaid(orderId, token);
+  } catch (err) {
+    console.warn('No se pudo marcar como pagada en DB local pool:', err.message);
+  }
 
   // Marcar orden como PAGADA en Supabase
   if (supabase) {
-    await supabase.from('ordenes').update({ status: 'PAGADA', qr_token: token }).eq('id', orderId);
+    const { error } = await supabase.from('ordenes').update({ status: 'PAGADA', qr_token: token }).eq('id', orderId);
+    if (error) {
+      console.error('Error actualizando estado en Supabase:', error.message);
+    }
   }
 
   // Descontar cupos según cantidad
-  await deductSeats(tallerId, Number(cantidad) || 1);
+  try {
+    if (tallerId) await deductSeats(tallerId, Number(cantidad) || 1);
+  } catch (err) {
+    console.warn('Error descontando cupos:', err.message);
+  }
 
   return token;
 }
@@ -332,7 +349,16 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ error: 'Falta order_id' });
 
-    const order = await getOrderById(Number(order_id));
+    let order = null;
+    if (supabase) {
+      const { data } = await supabase.from('ordenes').select('*').eq('id', Number(order_id)).single();
+      order = data;
+    }
+
+    if (!order) {
+      order = await getOrderById(Number(order_id));
+    }
+
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
     if (order.status === 'PAGADA') {
@@ -373,13 +399,25 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
 
     let order = null;
     if (externalRef && /^\d+$/.test(String(externalRef))) {
-      order = await getOrderById(Number(externalRef));
+      if (supabase) {
+        const { data } = await supabase.from('ordenes').select('*').eq('id', Number(externalRef)).single();
+        order = data;
+      }
+      if (!order) {
+        order = await getOrderById(Number(externalRef));
+      }
     }
 
     if (!order) {
       const prefId = (payment?.preference_id) || (payment?.collection?.preference_id) || null;
       if (prefId) {
-        order = await getOrderByPreference(prefId);
+        if (supabase) {
+          const { data } = await supabase.from('ordenes').select('*').eq('preference_id', prefId).single();
+          order = data;
+        }
+        if (!order) {
+          order = await getOrderByPreference(prefId);
+        }
       }
     }
 
@@ -407,7 +445,17 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
 app.get('/api/orders/:id/qr', async (req, res) => {
   try {
     const { id } = req.params;
-    const order = await getOrderById(Number(id));
+    let order = null;
+
+    if (supabase) {
+      const { data } = await supabase.from('ordenes').select('*').eq('id', Number(id)).single();
+      order = data;
+    }
+
+    if (!order) {
+      order = await getOrderById(Number(id));
+    }
+
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
     if (order.status !== 'PAGADA') return res.status(403).json({ error: 'Orden no está pagada' });
 
@@ -444,6 +492,5 @@ initDb()
     });
   })
   .catch((err) => {
-    console.error('No se pudo inicializar la base de datos:', err.message || err);
-    process.exit(1);
+    console.error('No se pudo inicializar la base de datos local (usando Supabase por defecto):', err.message || err);
   });

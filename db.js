@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import pkg from 'pg';
+import dns from 'node:dns'; // <--- AGREGAR ESTA LÍNEA
+
+dns.setDefaultResultOrder('ipv4first'); // <--- AGREGAR ESTA LÍNEA
 const { Pool } = pkg;
 
 function getConnectionString() {

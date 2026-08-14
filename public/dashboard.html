@@ -150,6 +150,7 @@
                             <th class="pb-3">Evento</th>
                             <th class="pb-3">Categoría</th>
                             <th class="pb-3">Dirección</th>
+                            <th class="pb-3 text-center">Validador QR</th>
                             <th class="pb-3 text-center">Acciones</th>
                         </tr>
                     </thead>
@@ -336,6 +337,19 @@
             return coordenadasComunasBase[comuna.toLowerCase()] || { lat: -33.435, lng: -70.620 };
         }
 
+        // Función para copiar o abrir el link del validador por taller
+        function copiarLinkValidador(tallerId) {
+            const urlValidador = `${window.location.origin}/validador.html?taller_id=${tallerId}`;
+            
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(urlValidador)
+                    .then(() => alert(`¡Link copiado al portapapeles!\n\n${urlValidador}`))
+                    .catch(() => prompt("Copia manualmente este enlace:", urlValidador));
+            } else {
+                prompt("Copia manualmente este enlace:", urlValidador);
+            }
+        }
+
         async function cargarMisEventos() {
             try {
                 const res = await fetch('/api/eventos', {
@@ -354,12 +368,14 @@
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(listaEventosLocales) || listaEventosLocales.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-gray-500">No tienes eventos publicados.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-gray-500">No tienes eventos publicados.</td></tr>`;
                     return;
                 }
 
                 listaEventosLocales.forEach(ev => {
                     const flyerImg = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=100';
+                    const urlValidador = `${window.location.origin}/validador.html?taller_id=${ev.id}`;
+
                     tbody.innerHTML += `
                         <tr class="hover:bg-slate-50 transition">
                             <td class="py-3">
@@ -371,6 +387,16 @@
                             </td>
                             <td class="py-3"><span class="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-bold">${ev.categoria}</span></td>
                             <td class="py-3 text-xs text-gray-500">${ev.direccion || ''} (${ev.comuna || ''})</td>
+                            <td class="py-3 text-center">
+                                <div class="flex items-center justify-center gap-1">
+                                    <button onclick="copiarLinkValidador(${ev.id})" class="bg-zinc-800 hover:bg-zinc-900 text-amber-400 font-bold text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 transition shadow cursor-pointer flex items-center gap-1" title="Copiar enlace del validador">
+                                        📋 Copiar Link
+                                    </button>
+                                    <a href="${urlValidador}" target="_blank" class="bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold text-xs p-1.5 rounded-lg border border-amber-300 transition" title="Abrir en pestaña nueva">
+                                        🔗
+                                    </a>
+                                </div>
+                            </td>
                             <td class="py-3 text-center">
                                 <button onclick="prepararEdicion(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
                                     ✏️ Editar

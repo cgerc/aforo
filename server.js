@@ -470,6 +470,72 @@ app.get('/api/orders/:id/qr', async (req, res) => {
   }
 });
 
+// VALIDAR CÓDIGO QR ESCANEADO DESDE VALIDADOR.HTML
+app.post('/api/validador/scan', async (req, res) => {
+  try {
+    const { qr_token, taller_id_actual } = req.body;
+
+    if (!qr_token || !taller_id_actual) {
+      return res.status(400).json({ valid: false, message: 'Faltan datos para validar.' });
+    }
+
+    const qrSecret = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr_secret_change_me';
+
+    // 1. Desencriptar el token JWT del QR
+    let decoded;
+    try {
+      decoded = jwt.verify(qr_token, qrSecret);
+    } catch (err) {
+      return res.status(401).json({ valid: false, message: 'Código QR inválido o falsificado.' });
+    }
+
+    // 2. Verificar que el QR pertenezca al taller correspondiente
+    if (String(decoded.taller_id) !== String(taller_id_actual)) {
+      return res.status(403).json({ valid: false, message: 'Este QR pertenece a otro taller/evento.' });
+    }
+
+    // 3. Buscar la orden
+    let order = null;
+    if (supabase) {
+      const { data } = await supabase.from('ordenes').select('*').eq('id', decoded.order_id).single();
+      order = data;
+    }
+
+    if (!order) {
+      order = await getOrderById(decoded.order_id);
+    }
+
+    if (!order) {
+      return res.status(404).json({ valid: false, message: 'Orden no encontrada en la base de datos.' });
+    }
+
+    // 4. Verificar estado de uso
+    if (order.status === 'USADA') {
+      return res.status(409).json({ valid: false, message: '¡ALERTA! Esta entrada ya fue escaneada y utilizada.' });
+    }
+
+    if (order.status !== 'PAGADA') {
+      return res.status(400).json({ valid: false, message: `La entrada tiene estado: ${order.status}. No autorizada.` });
+    }
+
+    // 5. Marcar como USADA
+    if (supabase) {
+      await supabase.from('ordenes').update({ status: 'USADA' }).eq('id', order.id);
+    }
+    try {
+      if (pool) await pool.query(`UPDATE ordenes SET status = 'USADA' WHERE id = $1`, [order.id]);
+    } catch (e) {
+      console.warn('No se pudo actualizar DB local pool:', e.message);
+    }
+
+    return res.json({ valid: true, message: 'Entrada Válida. ¡Acceso permitido!', order_id: order.id });
+
+  } catch (error) {
+    console.error('Error validando QR:', error);
+    return res.status(500).json({ valid: false, message: 'Error interno del servidor.' });
+  }
+});
+
 // Manejo centralizado de rutas 404
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });

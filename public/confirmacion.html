@@ -9,24 +9,53 @@
     <div class="max-w-md w-full bg-white p-6 rounded-xl shadow border text-center space-y-4">
         <h1 class="text-2xl font-bold text-green-600">¡Compra Procesada con Éxito!</h1>
         <p class="text-sm text-gray-600">Tu código QR único de acceso ha sido emitido y se ha enviado un recordatorio a tu WhatsApp.</p>
-        <div class="p-4 bg-zinc-100 rounded-lg flex flex-col items-center">
-            <img id="img-qr" class="w-48 h-48 border bg-white" alt="Tu Entrada QR">
+        
+        <div class="p-4 bg-zinc-100 rounded-lg flex flex-col items-center min-h-[220px] justify-center">
+            <!-- Cargando/Spinner por si tarda un par de segundos -->
+            <span id="loading-text" class="text-xs text-gray-500">Generando tu entrada QR...</span>
+            <img id="img-qr" class="w-48 h-48 border bg-white hidden" alt="Tu Entrada QR">
         </div>
+
         <button onclick="window.print()" class="w-full bg-zinc-900 text-white py-2 rounded-lg font-bold">Descargar Entrada PDF</button>
     </div>
+
     <script>
         const params = new URLSearchParams(window.location.search);
-        const ticketId = params.get('ticketId');
-        
+        // 1. Obtener order_id de la URL (o fallback a external_reference que envía Mercado Pago)
+        const orderId = params.get('order_id') || params.get('external_reference');
+
         async function obtenerQR() {
-            const res = await fetch('/api/generar-qr', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ticketId })
-            });
-            const data = await res.json();
-            if(data.qr) document.getElementById('img-qr').src = data.qr;
+            if (!orderId) {
+                document.getElementById('loading-text').innerText = 'Error: No se encontró el número de orden.';
+                return;
+            }
+
+            try {
+                // 2. Primero invocamos la confirmación de respaldo por si el Webhook no ha terminado
+                await fetch('/api/orders/confirm-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order_id: orderId })
+                });
+
+                // 3. Consultar el endpoint GET que devuelve la imagen del QR
+                const res = await fetch(`/api/orders/${orderId}/qr`);
+                const data = await res.json();
+
+                if (data.qr_data_url) {
+                    const img = document.getElementById('img-qr');
+                    img.src = data.qr_data_url;
+                    img.classList.remove('hidden');
+                    document.getElementById('loading-text').classList.add('hidden');
+                } else {
+                    document.getElementById('loading-text').innerText = 'No se pudo cargar el código QR.';
+                }
+            } catch (err) {
+                console.error('Error procesando QR:', err);
+                document.getElementById('loading-text').innerText = 'Error al generar el código QR.';
+            }
         }
+
         obtenerQR();
     </script>
 </body>

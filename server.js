@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
@@ -44,6 +45,7 @@ if (mpAccessToken) {
 }
 console.log('>>> [DEBUG] process.env.MERCADOPAGO_ACCESS_TOKEN:', process.env.MERCADOPAGO_ACCESS_TOKEN ? 'Existe' : 'No encontrado (undefined)');
 console.log('>>> [DEBUG] mpClient inicializado:', Boolean(mpClient));
+
 const sanitizeText = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, 200);
@@ -111,6 +113,7 @@ app.get('/api/eventos', async (req, res) => {
       direccion: evento.direccion || '',
       lat: evento.lat ?? null,
       lng: evento.lng ?? null,
+      validador_token: evento.validador_token || null
     }));
 
     return res.json(eventos);
@@ -120,7 +123,7 @@ app.get('/api/eventos', async (req, res) => {
   }
 });
 
-// CREAR UN NUEVO EVENTO
+// CREAR UN NUEVO EVENTO (Incluye generación de validador_token único)
 app.post('/api/eventos', async (req, res) => {
   try {
     if (!supabase) {
@@ -152,7 +155,8 @@ app.post('/api/eventos', async (req, res) => {
       lng: Number(lng) || null,
       categorias: Array.isArray(categorias) ? categorias : [],
       tickets_max: Number(ticketsMax) || 40,
-      imagen: imagen || null
+      imagen: imagen || null,
+      validador_token: crypto.randomUUID()
     };
 
     const { data, error } = await supabase
@@ -381,7 +385,6 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       return res.status(503).json({ ok: false, error: 'Mercado Pago no está configurado.' });
     }
 
-    // Intentar extraer id de pago desde body o query
     let body;
     try { body = JSON.parse(req.body.toString()); } catch (e) { body = req.body; }
 
@@ -395,7 +398,6 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
     const payment = await paymentInstance.get({ id: paymentId });
     const status = (payment?.status || payment?.collection?.status || '').toString().toLowerCase();
 
-    // Tratar de resolver la orden: buscar external_reference o preference_id
     const externalRef = (payment?.external_reference) || (payment?.order?.external_reference) || (payment?.collection?.external_reference) || (payment?.preference_id) || (payment?.collection?.preference_id) || null;
 
     let order = null;
@@ -471,8 +473,43 @@ app.get('/api/orders/:id/qr', async (req, res) => {
   }
 });
 
-// VALIDAR CÓDIGO QR ESCANEADO DESDE VALIDADOR.HTML
+// OBTENER INFORMACIÓN DEL EVENTO PARA VALIDADOR.HTML
+app.get('/api/validador/info/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    if (!token) return res.status(400).json({ error: 'Token requerido' });
 
+    let evento = null;
+    const esUUID = String(token).includes('-');
+
+    if (supabase) {
+      const query = supabase.from('eventos').select('id, titulo, fecha, comuna');
+      const { data } = esUUID 
+        ? await query.eq('validador_token', token).single()
+        : await query.eq('id', Number(token)).single();
+      evento = data;
+    }
+
+    if (!evento && pool) {
+      const sql = esUUID 
+        ? 'SELECT id, titulo, fecha, comuna FROM eventos WHERE validador_token = $1'
+        : 'SELECT id, titulo, fecha, comuna FROM eventos WHERE id = $1';
+      const result = await pool.query(sql, [token]);
+      if (result.rowCount > 0) evento = result.rows[0];
+    }
+
+    if (!evento) {
+      return res.status(404).json({ error: 'Evento no encontrado o token inválido' });
+    }
+
+    return res.json({ ok: true, evento });
+  } catch (error) {
+    console.error('Error obteniendo info del validador:', error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// VALIDAR CÓDIGO QR ESCANEADO DESDE VALIDADOR.HTML
 app.post('/api/validador/scan', async (req, res) => {
   try {
     const { qr_token, organizador_token, taller_id_actual } = req.body;

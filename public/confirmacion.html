@@ -2,43 +2,63 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Compra exitosa</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compra exitosa - ViveTicket</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Librería para forzar la descarga del PDF directamente en vez de imprimir -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
-<body class="bg-gray-50 p-8 flex flex-col items-center">
-    <div class="max-w-md w-full bg-white p-6 rounded-xl shadow border text-center space-y-4">
-        <h1 class="text-2xl font-bold text-green-600">¡Compra procesada con éxito!</h1>
-        <p class="text-sm text-gray-600">Tu código QR único de acceso ha sido emitido y se ha enviado un recordatorio a tu WhatsApp.</p>
-        
-        <div class="p-4 bg-zinc-100 rounded-lg flex flex-col items-center min-h-[220px] justify-center">
-            <!-- Cargando/Spinner por si tarda un par de segundos -->
-            <span id="loading-text" class="text-xs text-gray-500">Generando tu entrada QR...</span>
-            <img id="img-qr" class="w-48 h-48 border bg-white hidden" alt="Tu Entrada QR">
+<body class="bg-gray-50 min-h-screen p-4 sm:p-8 flex flex-col items-center justify-center">
+
+    <div class="max-w-md w-full space-y-4">
+        <!-- Contenedor que se exportará a PDF -->
+        <div id="ticket-container" class="bg-white p-6 rounded-2xl shadow border border-gray-100 text-center space-y-4">
+            <div class="space-y-1">
+                <span class="text-xs font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full">Entrada Digital</span>
+                <h1 class="text-2xl font-black text-green-600 pt-2">¡Compra procesada con éxito!</h1>
+                <p class="text-sm text-gray-500">Tu código QR único de acceso ha sido emitido y se ha enviado un recordatorio a tu WhatsApp.</p>
+            </div>
+            
+            <div class="p-5 bg-zinc-50 rounded-xl flex flex-col items-center min-h-[220px] justify-center border border-zinc-100">
+                <!-- Estado de Carga -->
+                <span id="loading-text" class="text-xs text-gray-400 animate-pulse font-medium">Generando tu entrada QR...</span>
+                <img id="img-qr" class="w-48 h-48 border bg-white rounded-lg shadow-sm hidden" alt="Tu Entrada QR">
+            </div>
+
+            <div id="order-badge" class="text-xs text-gray-400 font-mono"></div>
         </div>
 
-        <button onclick="window.print()" class="w-full bg-zinc-900 text-white py-2 rounded-lg font-bold">Descargar entrada PDF</button>
+        <!-- Botón de Acción -->
+        <button id="btn-download" onclick="descargarPDFDirecto()" class="w-full bg-zinc-950 text-white py-3.5 rounded-xl font-bold hover:bg-zinc-800 active:scale-95 transition shadow-md flex items-center justify-center space-x-2">
+            <span>📥</span>
+            <span id="btn-text">Descargar entrada PDF</span>
+        </button>
     </div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
-        // 1. Obtener order_id de la URL (o fallback a external_reference que envía Mercado Pago)
         const orderId = params.get('order_id') || params.get('external_reference');
+
+        if (orderId) {
+            document.getElementById('order-badge').innerText = `Orden #${orderId}`;
+        }
 
         async function obtenerQR() {
             if (!orderId) {
                 document.getElementById('loading-text').innerText = 'Error: No se encontró el número de orden.';
+                document.getElementById('loading-text').classList.add('text-red-500');
                 return;
             }
 
             try {
-                // 2. Primero invocamos la confirmación de respaldo por si el Webhook no ha terminado
+                // 1. Confirmación de respaldo por si el Webhook no ha finalizado
                 await fetch('/api/orders/confirm-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ order_id: orderId })
                 });
 
-                // 3. Consultar el endpoint GET que devuelve la imagen del QR
+                // 2. Consultar el endpoint GET que devuelve el DataURL del QR
                 const res = await fetch(`/api/orders/${orderId}/qr`);
                 const data = await res.json();
 
@@ -49,10 +69,37 @@
                     document.getElementById('loading-text').classList.add('hidden');
                 } else {
                     document.getElementById('loading-text').innerText = 'No se pudo cargar el código QR.';
+                    document.getElementById('loading-text').classList.add('text-red-500');
                 }
             } catch (err) {
                 console.error('Error procesando QR:', err);
                 document.getElementById('loading-text').innerText = 'Error al generar el código QR.';
+                document.getElementById('loading-text').classList.add('text-red-500');
+            }
+        }
+
+        async function descargarPDFDirecto() {
+            const ticketElement = document.getElementById('ticket-container');
+            const btnText = document.getElementById('btn-text');
+            const originalText = btnText.innerText;
+
+            btnText.innerText = "Generando archivo PDF...";
+
+            const opciones = {
+                margin:       8,
+                filename:     `Entrada_ViveTicket_${orderId || 'orden'}.pdf`,
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+                jsPDF:        { unit: 'mm', format: 'a5', orientation: 'portrait' }
+            };
+
+            try {
+                // Genera y dispara la descarga en segundo plano sin abrir ventana de impresión
+                await html2pdf().set(opciones).from(ticketElement).save();
+            } catch (error) {
+                console.error('Error al generar PDF:', error);
+            } finally {
+                btnText.innerText = originalText;
             }
         }
 

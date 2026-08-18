@@ -2,79 +2,119 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Escanear entrada QR</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escanear entrada QR - ViveTicket</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        #reader video {
+            object-fit: cover !important;
+            border-radius: 0.75rem;
+        }
+    </style>
 </head>
-<body class="bg-zinc-900 text-white min-h-screen flex flex-col justify-between p-6">
+<body class="bg-zinc-900 text-white min-h-screen flex flex-col justify-between p-4 sm:p-6">
 
     <header class="text-center py-2 border-b border-zinc-800">
-        <h1 class="text-lg font-black text-amber-500">VALIDADOR PORTÁTIL</h1>
-        <p id="taller-info" class="text-xs text-gray-400 mt-1">Cargando evento...</p>
+        <h1 class="text-lg font-black text-amber-500 tracking-wider">VALIDADOR PORTÁTIL</h1>
+        <p id="taller-info" class="text-xs text-gray-400 mt-1">Iniciando lector de cámara...</p>
     </header>
 
     <main class="max-w-md mx-auto w-full space-y-4 my-auto">
-        <!-- Lector QR -->
-        <div id="reader" class="w-full bg-zinc-950 rounded-xl overflow-hidden border border-zinc-700"></div>
+        <!-- Contenedor de la Cámara -->
+        <div id="reader-container" class="relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-zinc-700 transition-colors duration-300">
+            <div id="reader" class="w-full"></div>
+            
+            <!-- Botón flotante para cambiar de cámara -->
+            <button id="btn-toggle-cam" onclick="cambiarCamara()" class="hidden absolute top-2 right-2 bg-zinc-900/80 hover:bg-zinc-800 text-xs text-gray-300 px-3 py-1.5 rounded-md border border-zinc-700 backdrop-blur-sm transition">
+                🔄 Cambiar cámara
+            </button>
+        </div>
         
         <!-- Mensaje de Feedback -->
-        <div id="feedback" class="hidden p-4 rounded-lg text-center font-bold"></div>
+        <div id="feedback" class="hidden p-4 rounded-lg text-center font-bold transition-all duration-300"></div>
 
         <!-- Botón para siguiente escaneo -->
-        <button id="btn-restart" onclick="reiniciarEscaneo()" class="hidden w-full bg-amber-500 text-zinc-950 py-3 rounded-lg font-bold hover:bg-amber-400 transition">
+        <button id="btn-restart" onclick="reiniciarEscaneo()" class="hidden w-full bg-amber-500 text-zinc-950 py-3.5 rounded-lg font-extrabold hover:bg-amber-400 active:scale-95 transition shadow-lg">
             Escanear siguiente entrada
         </button>
     </main>
 
-    <footer class="text-center text-xs text-gray-500">
-        <a href="dashboard.html" class="underline text-amber-500">Volver al Panel</a>
+    <footer class="text-center text-xs text-gray-500 py-2">
+        <a href="dashboard.html" class="underline hover:text-amber-400 text-amber-500">Volver al Panel</a>
     </footer>
 
     <script>
         const params = new URLSearchParams(window.location.search);
-        // Soporte prioritario para token UUID, con respaldo para taller_id anterior
-        const tallerToken = params.get('token') || params.get('taller_token') || params.get('taller_id');
+        // Soporta token UUID seguro o fallback con taller_id
+        const tallerToken = params.get('token') || params.get('organizador_token') || params.get('taller_token') || params.get('taller_id');
 
         const tallerInfo = document.getElementById('taller-info');
         const box = document.getElementById('feedback');
         const btnRestart = document.getElementById('btn-restart');
+        const readerContainer = document.getElementById('reader-container');
+        const btnToggleCam = document.getElementById('btn-toggle-cam');
 
-        let scanner = null;
+        let html5QrCode = null;
         let procesando = false;
+        let facingModeActual = "environment"; // Inicia con cámara trasera
 
         if (!tallerToken) {
-            tallerInfo.innerText = "⚠️ Error: Falta el token del evento en el enlace.";
-            tallerInfo.classList.add("text-red-400");
+            tallerInfo.innerText = "⚠️ Error: Enlace sin token o ID del evento.";
+            tallerInfo.className = "text-xs text-red-400 mt-1 font-semibold";
         } else {
             tallerInfo.innerText = "Lector activo y listo para escanear";
-            iniciarScanner();
+            iniciarCamara();
         }
 
-        function iniciarScanner() {
+        async function iniciarCamara() {
             procesando = false;
             box.classList.add('hidden');
             btnRestart.classList.add('hidden');
+            readerContainer.className = "relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-zinc-700";
 
-            scanner = new Html5QrcodeScanner("reader", { 
-                fps: 10, 
-                qrbox: 250 
-            }, false);
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
 
-            scanner.render(onScanSuccess);
+            const config = {
+                fps: 15,
+                qrbox: { width: 250, height: 250 },
+                aspectRatio: 1.0
+            };
+
+            try {
+                await html5QrCode.start(
+                    { facingMode: facingModeActual },
+                    config,
+                    onScanSuccess
+                );
+                btnToggleCam.classList.remove('hidden');
+            } catch (err) {
+                console.error("Error al iniciar cámara:", err);
+                tallerInfo.innerText = "⚠️ Error al acceder a la cámara";
+                tallerInfo.className = "text-xs text-red-400 mt-1 font-semibold";
+                box.className = "p-4 rounded-lg text-center font-bold bg-red-900/60 text-red-200 border border-red-600";
+                box.innerHTML = "No se pudo acceder a la cámara.<br><span class='text-xs font-normal'>Asegúrate de otorgar los permisos de cámara en tu navegador.</span>";
+                box.classList.remove('hidden');
+            }
         }
 
         async function onScanSuccess(decodedText) {
             if (procesando) return;
             procesando = true;
 
-            // Pausar la cámara mientras se hace la consulta
-            if (scanner) {
-                await scanner.clear().catch(err => console.error("Error al pausar la cámara:", err));
+            // Pausar inmediatamente la cámara al detectar un código
+            try {
+                await html5QrCode.stop();
+            } catch (e) {
+                console.warn("Cámara detenida tras lectura.");
             }
 
-            box.className = "p-4 rounded-lg text-center font-bold bg-zinc-800 text-amber-400 border border-amber-500/50";
-            box.innerText = "Validando entrada...";
+            // Estado: Validando
+            readerContainer.className = "relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-blue-500";
+            box.className = "p-4 rounded-lg text-center font-bold bg-zinc-800 text-blue-400 border border-blue-500/50";
+            box.innerText = "Validando código en el servidor...";
             box.classList.remove('hidden');
 
             try {
@@ -90,26 +130,46 @@
                 const data = await res.json();
                 
                 if (res.ok && data.valid) {
-                    box.className = "p-4 rounded-lg text-center font-bold bg-green-900 text-green-200 border border-green-600";
-                    box.innerHTML = `✅ ${data.message}<br><span class='text-xs font-normal'>Orden #${data.order_id || ''}</span>`;
+                    // Éxito: Entrada autorizada y marcada como USADA
+                    readerContainer.className = "relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-emerald-500";
+                    box.className = "p-4 rounded-lg text-center font-bold bg-emerald-950 text-emerald-300 border border-emerald-500";
+                    box.innerHTML = `✅ ${data.message}<br><span class='text-xs font-normal text-emerald-200'>Orden #${data.order_id || ''}</span>`;
+                    if (navigator.vibrate) navigator.vibrate(200);
+
                 } else if (res.status === 409) {
-                    box.className = "p-4 rounded-lg text-center font-bold bg-amber-900 text-amber-200 border border-amber-600";
+                    // Conflicto: Entrada ya utilizada previamente
+                    readerContainer.className = "relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-amber-500";
+                    box.className = "p-4 rounded-lg text-center font-bold bg-amber-950 text-amber-300 border border-amber-500";
                     box.innerText = `🚨 ${data.message || 'Esta entrada ya fue utilizada.'}`;
+                    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+
                 } else {
-                    box.className = "p-4 rounded-lg text-center font-bold bg-red-900 text-red-200 border border-red-600";
+                    // Error: Falsificada, caducada o taller incorrecto
+                    readerContainer.className = "relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-red-500";
+                    box.className = "p-4 rounded-lg text-center font-bold bg-red-950 text-red-300 border border-red-500";
                     box.innerText = `❌ ${data.message || 'Entrada inválida o no autorizada.'}`;
+                    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                 }
             } catch (error) {
                 console.error("Error validando QR:", error);
-                box.className = "p-4 rounded-lg text-center font-bold bg-red-900 text-red-200 border border-red-600";
+                readerContainer.className = "relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-red-500";
+                box.className = "p-4 rounded-lg text-center font-bold bg-red-950 text-red-300 border border-red-500";
                 box.innerText = "❌ Error de conexión al servidor.";
             }
 
             btnRestart.classList.remove('hidden');
         }
 
+        async function cambiarCamara() {
+            if (html5QrCode) {
+                try { await html5QrCode.stop(); } catch(e) {}
+            }
+            facingModeActual = facingModeActual === "environment" ? "user" : "environment";
+            iniciarCamara();
+        }
+
         function reiniciarEscaneo() {
-            iniciarScanner();
+            iniciarCamara();
         }
     </script>
 </body>

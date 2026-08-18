@@ -337,9 +337,11 @@
             return coordenadasComunasBase[comuna.toLowerCase()] || { lat: -33.435, lng: -70.620 };
         }
 
-        // Función para copiar o abrir el link del validador por taller
-        function copiarLinkValidador(tallerId) {
-            const urlValidador = `${window.location.origin}/validador.html?taller_id=${tallerId}`;
+        // Función para copiar el link del validador usando token seguro
+        function copiarLinkValidador(identificador) {
+            const esUUID = typeof identificador === 'string' && identificador.includes('-');
+            const parametro = esUUID ? `token=${identificador}` : `taller_id=${identificador}`;
+            const urlValidador = `${window.location.origin}/validador.html?${parametro}`;
             
             if (navigator.clipboard) {
                 navigator.clipboard.writeText(urlValidador)
@@ -374,7 +376,9 @@
 
                 listaEventosLocales.forEach(ev => {
                     const flyerImg = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=100';
-                    const urlValidador = `${window.location.origin}/validador.html?taller_id=${ev.id}`;
+                    const tokenOId = ev.validador_token || ev.id;
+                    const parametro = ev.validador_token ? `token=${ev.validador_token}` : `taller_id=${ev.id}`;
+                    const urlValidador = `${window.location.origin}/validador.html?${parametro}`;
 
                     tbody.innerHTML += `
                         <tr class="hover:bg-slate-50 transition">
@@ -389,7 +393,7 @@
                             <td class="py-3 text-xs text-gray-500">${ev.direccion || ''} (${ev.comuna || ''})</td>
                             <td class="py-3 text-center">
                                 <div class="flex items-center justify-center gap-1">
-                                    <button onclick="copiarLinkValidador(${ev.id})" class="bg-zinc-800 hover:bg-zinc-900 text-amber-400 font-bold text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 transition shadow cursor-pointer flex items-center gap-1" title="Copiar enlace del validador">
+                                    <button onclick="copiarLinkValidador('${tokenOId}')" class="bg-zinc-800 hover:bg-zinc-900 text-amber-400 font-bold text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 transition shadow cursor-pointer flex items-center gap-1" title="Copiar enlace del validador">
                                         📋 Copiar Link
                                     </button>
                                     <a href="${urlValidador}" target="_blank" class="bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold text-xs p-1.5 rounded-lg border border-amber-300 transition" title="Abrir en pestaña nueva">

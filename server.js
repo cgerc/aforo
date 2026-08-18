@@ -42,7 +42,8 @@ if (mpAccessToken) {
 } else {
   console.warn('Mercado Pago no está configurado. Define MERCADOPAGO_ACCESS_TOKEN en tu .env');
 }
-
+console.log('>>> [DEBUG] process.env.MERCADOPAGO_ACCESS_TOKEN:', process.env.MERCADOPAGO_ACCESS_TOKEN ? 'Existe' : 'No encontrado (undefined)');
+console.log('>>> [DEBUG] mpClient inicializado:', Boolean(mpClient));
 const sanitizeText = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, 200);
@@ -471,11 +472,13 @@ app.get('/api/orders/:id/qr', async (req, res) => {
 });
 
 // VALIDAR CÓDIGO QR ESCANEADO DESDE VALIDADOR.HTML
+
 app.post('/api/validador/scan', async (req, res) => {
   try {
-    const { qr_token, taller_id_actual } = req.body;
+    const { qr_token, organizador_token, taller_id_actual } = req.body;
+    const tokenRecibido = organizador_token || taller_id_actual;
 
-    if (!qr_token || !taller_id_actual) {
+    if (!qr_token || !tokenRecibido) {
       return res.status(400).json({ valid: false, message: 'Faltan datos para validar.' });
     }
 
@@ -489,12 +492,39 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(401).json({ valid: false, message: 'Código QR inválido o falsificado.' });
     }
 
-    // 2. Verificar que el QR pertenezca al taller correspondiente
-    if (String(decoded.taller_id) !== String(taller_id_actual)) {
+    // 2. Resolver el ID del evento según si recibimos un UUID seguro o un ID numérico
+    let eventoIdAutorizado = null;
+    const esUUID = String(tokenRecibido).includes('-');
+
+    if (esUUID) {
+      // Buscar el evento por su validador_token único
+      if (supabase) {
+        const { data: eventoData } = await supabase
+          .from('eventos')
+          .select('id, titulo')
+          .eq('validador_token', tokenRecibido)
+          .single();
+        if (eventoData) eventoIdAutorizado = eventoData.id;
+      }
+      if (!eventoIdAutorizado && pool) {
+        const result = await pool.query('SELECT id, titulo FROM eventos WHERE validador_token = $1', [tokenRecibido]);
+        if (result.rowCount > 0) eventoIdAutorizado = result.rows[0].id;
+      }
+    } else {
+      // Respaldo para compatibilidad con ID numérico directo
+      eventoIdAutorizado = Number(tokenRecibido);
+    }
+
+    if (!eventoIdAutorizado) {
+      return res.status(403).json({ valid: false, message: 'Enlace de validador no autorizado o caducado.' });
+    }
+
+    // 3. Verificar que el QR pertenezca al taller correspondiente
+    if (String(decoded.taller_id) !== String(eventoIdAutorizado)) {
       return res.status(403).json({ valid: false, message: 'Este QR pertenece a otro taller/evento.' });
     }
 
-    // 3. Buscar la orden
+    // 4. Buscar la orden
     let order = null;
     if (supabase) {
       const { data } = await supabase.from('ordenes').select('*').eq('id', decoded.order_id).single();
@@ -509,7 +539,7 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(404).json({ valid: false, message: 'Orden no encontrada en la base de datos.' });
     }
 
-    // 4. Verificar estado de uso
+    // 5. Verificar estado de uso
     if (order.status === 'USADA') {
       return res.status(409).json({ valid: false, message: '¡ALERTA! Esta entrada ya fue escaneada y utilizada.' });
     }
@@ -518,7 +548,7 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(400).json({ valid: false, message: `La entrada tiene estado: ${order.status}. No autorizada.` });
     }
 
-    // 5. Marcar como USADA
+    // 6. Marcar como USADA
     if (supabase) {
       await supabase.from('ordenes').update({ status: 'USADA' }).eq('id', order.id);
     }

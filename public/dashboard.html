@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Portal Tallerista - Viva Ticket</title>
+    <title>Portal Organizadores - Vive Ticket</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -20,7 +20,7 @@
     <!-- BARRA LATERAL -->
     <aside class="w-64 bg-zinc-950 text-white p-6 space-y-6 flex flex-col justify-between">
         <div>
-            <h2 class="text-xl font-black text-amber-500 tracking-wider mb-8">SOY TALLERISTA</h2>
+            <h2 class="text-xl font-black text-amber-500 tracking-wider mb-8">Portal Organizadores</h2>
             <nav class="space-y-3">
                 <a href="#seccion-metricas" class="block text-gray-400 hover:text-white p-3 transition">📈 Métricas de ventas</a>
                 <a href="#seccion-mis-eventos" class="block text-gray-400 hover:text-white p-3 transition">📅 Mis Eventos</a>
@@ -33,14 +33,14 @@
             <button onclick="cerrarSesion()" class="w-full bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white font-bold py-2.5 px-4 rounded-lg border border-red-500/30 transition text-sm flex items-center justify-center gap-2 cursor-pointer">
                 🚪 Cerrar sesión
             </button>
-            <span class="text-[10px] text-gray-500 block text-center mt-3">Viva Ticket v1.0</span>
+            <span class="text-[10px] text-gray-500 block text-center mt-3">Vive Ticket v1.0</span>
         </div>
     </aside>
 
     <!-- CONTENIDO PRINCIPAL -->
     <main class="flex-1 p-8 overflow-y-auto space-y-8">
         <header>
-            <h1 class="text-3xl font-black text-gray-900">Administración de Eventos</h1>
+            <h1 class="text-3xl font-black text-gray-900">Administración de eventos</h1>
             <p class="text-gray-500 text-sm mt-1">Crea, edita y gestiona tus publicaciones.</p>
         </header>
 
@@ -76,13 +76,13 @@
 
                 <!-- Flyer -->
                 <div class="md:col-span-2">
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">Cargar Imagen / Flyer desde tu Computador:</label>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Cargar imagen / Flyer desde tu Computador:</label>
                     <input type="file" id="evento-archivo" accept="image/*" class="w-full p-2.5 border rounded-lg bg-gray-50 outline-none text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer">
                 </div>
 
                 <!-- Fecha y Hora -->
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">Fecha y Hora de la Función:</label>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Fecha y Hora de la función:</label>
                     <input type="datetime-local" id="evento-fecha" class="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:border-amber-500" required>
                 </div>
 
@@ -120,11 +120,11 @@
                 <div class="md:col-span-2 bg-slate-50 p-5 rounded-xl border space-y-4">
                     <div class="flex justify-between items-center border-b pb-3">
                         <div>
-                            <h3 class="text-md font-bold text-gray-800">Configuración de Entradas y Precios</h3>
+                            <h3 class="text-md font-bold text-gray-800">Configuración de entradas y precios</h3>
                             <p class="text-xs text-gray-500">Puedes agregar o eliminar los tipos de ticket que necesites.</p>
                         </div>
                         <button type="button" onclick="agregarFilaEntrada()" class="bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold text-xs py-2.5 px-4 rounded-lg border border-amber-300 transition shadow-sm flex items-center gap-1 cursor-pointer">
-                            ➕ Agregar Tipo de Entrada
+                            ➕ Agregar tipo de Entrada
                         </button>
                     </div>
                     <div id="contenedor-filas-entradas" class="space-y-3"></div>
@@ -141,7 +141,7 @@
 
         <!-- MIS EVENTOS -->
         <section id="seccion-mis-eventos" class="bg-white p-6 rounded-xl border shadow-sm space-y-4">
-            <h2 class="text-xl font-bold text-gray-800 border-b pb-3">📅 Mis Eventos Publicados</h2>
+            <h2 class="text-xl font-bold text-gray-800 border-b pb-3">📅 Mis eventos publicados</h2>
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead>

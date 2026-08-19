@@ -1,8 +1,3 @@
-Aquí tienes el código completo y actualizado para **`server.js`**, listo para copiar y pegar.
-
-Se agregó la ruta `DELETE /api/eventos/:id` (que elimina el evento tanto en Supabase como en la base de datos local y maneja las órdenes asociadas si existieran) y se mantuvieron las mejoras previas (límite de 20mb y vinculación segura de `taller_id`):
-
-```javascript
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -56,11 +51,18 @@ const sanitizeText = (value) => {
   return value.trim().slice(0, 200);
 };
 
-// Middlewares globales (límite para subida de flyers ampliado)
+// Middlewares globales
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ limit: '20mb', extended: true }));
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Servir favicon explícitamente para evitar 500 / 404
+app.get('/favicon.ico', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'favicon.ico'), (err) => {
+    if (err) res.status(204).end();
+  });
+});
 
 // RUTAS API
 app.use('/api/auth', authRoutes);
@@ -129,7 +131,7 @@ app.get('/api/eventos', async (req, res) => {
   }
 });
 
-// CREAR UN NUEVO EVENTO (Incluye generación de validador_token único)
+// CREAR UN NUEVO EVENTO
 app.post('/api/eventos', async (req, res) => {
   try {
     if (!supabase) {
@@ -251,7 +253,6 @@ app.delete('/api/eventos/:id', async (req, res) => {
 
     // 1. Eliminar en Supabase
     if (supabase) {
-      // Opcional: Desvincular o eliminar órdenes asociadas si existieran
       await supabase.from('ordenes').delete().eq('taller_id', Number(id));
 
       const { error } = await supabase
@@ -708,5 +709,3 @@ initDb()
   .catch((err) => {
     console.error('No se pudo inicializar la base de datos local (usando Supabase por defecto):', err.message || err);
   });
-
-```

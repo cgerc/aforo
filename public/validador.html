@@ -46,8 +46,8 @@
 
     <script>
         const params = new URLSearchParams(window.location.search);
-        // Soporta token UUID seguro o fallback con taller_id
-        const tallerToken = params.get('token') || params.get('organizador_token') || params.get('taller_token') || params.get('taller_id');
+        // Soporta token UUID seguro desde la URL (?token=... o ?validador_token=...)
+        const validadorToken = params.get('token') || params.get('validador_token') || params.get('organizador_token') || params.get('taller_token');
 
         const tallerInfo = document.getElementById('taller-info');
         const box = document.getElementById('feedback');
@@ -57,10 +57,10 @@
 
         let html5QrCode = null;
         let procesando = false;
-        let facingModeActual = "environment"; // Inicia con cámara trasera
+        let facingModeActual = "environment"; // Inicia con la cámara trasera
 
-        if (!tallerToken) {
-            tallerInfo.innerText = "⚠️ Error: Enlace sin token o ID del evento.";
+        if (!validadorToken) {
+            tallerInfo.innerText = "⚠️ Error: Enlace sin token de autorización del taller.";
             tallerInfo.className = "text-xs text-red-400 mt-1 font-semibold";
         } else {
             tallerInfo.innerText = "Lector activo y listo para escanear";
@@ -108,7 +108,7 @@
             try {
                 await html5QrCode.stop();
             } catch (e) {
-                console.warn("Cámara detenida tras lectura.");
+                console.warn("Cámara pausada tras lectura.");
             }
 
             // Estado: Validando
@@ -122,8 +122,8 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        qr_token: decodedText,
-                        organizador_token: tallerToken
+                        qr_token: decodedText.trim(),
+                        organizador_token: validadorToken.trim()
                     })
                 });
 
@@ -144,7 +144,7 @@
                     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
                 } else {
-                    // Error: Falsificada, caducada o taller incorrecto
+                    // Error: Falsificada, no encontrada o taller incorrecto
                     readerContainer.className = "relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-red-500";
                     box.className = "p-4 rounded-lg text-center font-bold bg-red-950 text-red-300 border border-red-500";
                     box.innerText = `❌ ${data.message || 'Entrada inválida o no autorizada.'}`;

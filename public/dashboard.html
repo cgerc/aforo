@@ -402,15 +402,49 @@
                                 </div>
                             </td>
                             <td class="py-3 text-center">
-                                <button onclick="prepararEdicion(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
-                                    ✏️ Editar
-                                </button>
+                                <div class="flex items-center justify-center gap-2">
+                                    <button onclick="prepararEdicion(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
+                                        ✏️ Editar
+                                    </button>
+                                    <button onclick="eliminarEvento(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
+                                        🗑️ Eliminar
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     `;
                 });
             } catch (error) {
                 console.error("Error al cargar eventos:", error);
+            }
+        }
+
+        async function eliminarEvento(id, titulo) {
+            if (!confirm(`¿Estás seguro de que deseas eliminar el taller "${titulo}"?\nEsta acción no se puede deshacer.`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/eventos/${id}`, {
+                    method: 'DELETE',
+                    headers: { ...encabezadosSesion() }
+                });
+
+                const data = await res.json().catch(() => ({}));
+
+                if (res.ok) {
+                    alert("Evento eliminado correctamente.");
+                    // Si se estaba editando este mismo evento, reseteamos el formulario
+                    if (document.getElementById('evento-id').value == id) {
+                        resetearFormulario();
+                    }
+                    cargarMisEventos();
+                } else {
+                    alert(`Error al eliminar (${res.status}): ${data.error || 'No se pudo eliminar el evento.'}`);
+                }
+            } catch (error) {
+                console.error("Error al eliminar evento:", error);
+                alert("Error de conexión con el servidor al intentar eliminar.");
             }
         }
 

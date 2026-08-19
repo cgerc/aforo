@@ -203,14 +203,15 @@
 
             const btnPagar = document.getElementById('btn-pagar');
             btnPagar.disabled = true;
-            btnPagar.innerText = "⏳ Cuestionando pasarela de pago...";
+            btnPagar.innerText = "⏳ Conectando con pasarela de pago...";
 
             try {
-                // Petición a tu servidor Node.js
+                // Petición a tu servidor Node.js enviando taller_id garantizado
                 const response = await fetch('/api/create-preference', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        taller_id: eventoData.id,
                         titulo: eventoData.titulo,
                         precioUnitario: precioUnitario,
                         cantidad: cantidad,
@@ -226,13 +227,13 @@
                 } else {
                     alert("No se pudo iniciar el proceso de pago. Intenta de nuevo.");
                     btnPagar.disabled = false;
-                    btnPagar.innerText = "💳 Confirmar y Pagar Entradas";
+                    btnPagar.innerText = "💳 Confirmar y pagar entradas";
                 }
             } catch (error) {
                 console.error("Error al procesar el pago:", error);
                 alert("Ocurrió un error al conectar con el servidor.");
                 btnPagar.disabled = false;
-                btnPagar.innerText = "💳 Confirmar y Pagar Entradas";
+                btnPagar.innerText = "💳 Confirmar y pagar entradas";
             }
         }
 

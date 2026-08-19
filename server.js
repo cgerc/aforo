@@ -1,3 +1,8 @@
+Aquí tienes el código completo y actualizado para **`server.js`**, listo para copiar y pegar.
+
+Se agregó la ruta `DELETE /api/eventos/:id` (que elimina el evento tanto en Supabase como en la base de datos local y maneja las órdenes asociadas si existieran) y se mantuvieron las mejoras previas (límite de 20mb y vinculación segura de `taller_id`):
+
+```javascript
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -51,8 +56,9 @@ const sanitizeText = (value) => {
   return value.trim().slice(0, 200);
 };
 
-// Middlewares globales
-app.use(express.json({ limit: '10mb' }));
+// Middlewares globales (límite para subida de flyers ampliado)
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -237,13 +243,53 @@ app.put('/api/eventos/:id', async (req, res) => {
   }
 });
 
+// ELIMINAR UN EVENTO EXISTENTE
+app.delete('/api/eventos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'ID de evento requerido.' });
+
+    // 1. Eliminar en Supabase
+    if (supabase) {
+      // Opcional: Desvincular o eliminar órdenes asociadas si existieran
+      await supabase.from('ordenes').delete().eq('taller_id', Number(id));
+
+      const { error } = await supabase
+        .from('eventos')
+        .delete()
+        .eq('id', Number(id));
+
+      if (error) {
+        console.error('Error eliminando evento en Supabase:', error.message);
+        return res.status(500).json({ error: 'No se pudo eliminar el evento', details: error.message });
+      }
+    }
+
+    // 2. Eliminar en BD local pool si aplica
+    if (pool) {
+      try {
+        await pool.query('DELETE FROM ordenes WHERE taller_id = $1', [Number(id)]);
+        await pool.query('DELETE FROM eventos WHERE id = $1', [Number(id)]);
+      } catch (err) {
+        console.warn('Advertencia borrando evento local:', err.message);
+      }
+    }
+
+    return res.json({ ok: true, message: 'Evento eliminado exitosamente' });
+  } catch (error) {
+    console.error('Error interno al eliminar evento:', error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // MERCADO PAGO - CREAR PREFERENCIA
 app.post('/api/create-preference', async (req, res) => {
   if (!mpClient) {
     return res.status(503).json({ error: 'Mercado Pago no está configurado. Define MERCADOPAGO_ACCESS_TOKEN en .env' });
   }
 
-  const { titulo, precioUnitario, cantidad, comprador, user_id, taller_id } = req.body || {};
+  const { titulo, precioUnitario, cantidad, comprador, user_id } = req.body || {};
+  const taller_id = req.body?.taller_id || req.body?.evento_id || req.body?.tallerId || req.body?.id || null;
 
   if (!titulo || !Number.isFinite(Number(precioUnitario)) || Number(precioUnitario) <= 0 || !Number.isFinite(Number(cantidad)) || Number(cantidad) <= 0) {
     return res.status(400).json({ error: 'Datos de pago inválidos. Asegúrate de enviar título, precio unitario y cantidad.' });
@@ -258,14 +304,41 @@ app.post('/api/create-preference', async (req, res) => {
   }
 
   try {
-    // 1) Crear orden PENDIENTE en BD
-    const order = await createOrder({ user_id: user_id || null, taller_id: taller_id || null, cantidad: Number(cantidad) || 1, preference_id: null });
+    let order = null;
+    try {
+      order = await createOrder({ 
+        user_id: user_id ? Number(user_id) : null, 
+        taller_id: taller_id ? Number(taller_id) : null, 
+        cantidad: Number(cantidad) || 1, 
+        preference_id: null 
+      });
+    } catch (dbErr) {
+      console.warn('Fallo al crear orden con helper local, usando Supabase:', dbErr.message);
+    }
 
-    // Definir URLs dinámicas usando las variables de entorno
+    if (!order && supabase) {
+      const { data: ordenSupabase, error: errSupabase } = await supabase
+        .from('ordenes')
+        .insert([{
+          user_id: user_id ? Number(user_id) : null,
+          taller_id: taller_id ? Number(taller_id) : null,
+          cantidad: Number(cantidad) || 1,
+          status: 'PENDIENTE'
+        }])
+        .select()
+        .single();
+
+      if (errSupabase) throw errSupabase;
+      order = ordenSupabase;
+    }
+
+    if (!order) {
+      throw new Error('No se pudo inicializar la orden en la base de datos.');
+    }
+
     const clientUrl = process.env.CLIENT_URL || `https://${req.get('host')}`;
     const webhookUrl = process.env.WEBHOOK_URL || null;
 
-    // 2) Crear preferencia en Mercado Pago usando SDK v2
     const preference = new Preference(mpClient);
     const preferencePayload = {
       body: {
@@ -298,15 +371,25 @@ app.post('/api/create-preference', async (req, res) => {
 
     const preferenceResult = await preference.create(preferencePayload);
 
-    // 3) Guardar preference_id en la orden local y en Supabase si aplica
     try {
-      if (pool) await pool.query(`UPDATE ordenes SET preference_id = $1 WHERE id = $2`, [preferenceResult.id, order.id]);
+      if (pool) {
+        await pool.query(
+          `UPDATE ordenes SET preference_id = $1, taller_id = COALESCE(taller_id, $2) WHERE id = $3`, 
+          [preferenceResult.id, taller_id ? Number(taller_id) : null, order.id]
+        );
+      }
     } catch (e) {
       console.warn('No se pudo actualizar DB local pool:', e.message);
     }
 
     if (supabase) {
-      await supabase.from('ordenes').update({ preference_id: preferenceResult.id }).eq('id', order.id);
+      await supabase
+        .from('ordenes')
+        .update({ 
+          preference_id: preferenceResult.id,
+          taller_id: taller_id ? Number(taller_id) : order.taller_id
+        })
+        .eq('id', order.id);
     }
 
     return res.status(200).json({ preference_id: preferenceResult.id, init_point: preferenceResult.init_point, order_id: order.id });
@@ -320,25 +403,25 @@ app.post('/api/create-preference', async (req, res) => {
 async function processOrderPayment(orderId, tallerId, cantidad) {
   const qrSecret = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr_secret_change_me';
   
-  // Generar qr_token (JWT sin expiración por fecha)
-  const token = jwt.sign({ order_id: orderId, taller_id: tallerId }, qrSecret);
+  const token = jwt.sign({ order_id: Number(orderId), taller_id: tallerId ? Number(tallerId) : null }, qrSecret);
 
-  // Marcar orden como PAGADA en la base de datos local si existe pool
   try {
     if (pool) await markOrderPaid(orderId, token);
   } catch (err) {
     console.warn('No se pudo marcar como pagada en DB local pool:', err.message);
   }
 
-  // Marcar orden como PAGADA en Supabase
   if (supabase) {
-    const { error } = await supabase.from('ordenes').update({ status: 'PAGADA', qr_token: token }).eq('id', orderId);
+    const { error } = await supabase
+      .from('ordenes')
+      .update({ status: 'PAGADA', qr_token: token, taller_id: tallerId ? Number(tallerId) : null })
+      .eq('id', Number(orderId));
+
     if (error) {
       console.error('Error actualizando estado en Supabase:', error.message);
     }
   }
 
-  // Descontar cupos según cantidad
   try {
     if (tallerId) await deductSeats(tallerId, Number(cantidad) || 1);
   } catch (err) {
@@ -360,13 +443,13 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
       order = data;
     }
 
-    if (!order) {
+    if (!order && pool) {
       order = await getOrderById(Number(order_id));
     }
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    if (order.status === 'PAGADA') {
+    if (order.status === 'PAGADA' && order.qr_token) {
       return res.json({ ok: true, message: 'La orden ya estaba registrada como PAGADA', qr_token: order.qr_token });
     }
 
@@ -406,7 +489,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
         const { data } = await supabase.from('ordenes').select('*').eq('id', Number(externalRef)).single();
         order = data;
       }
-      if (!order) {
+      if (!order && pool) {
         order = await getOrderById(Number(externalRef));
       }
     }
@@ -418,7 +501,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
           const { data } = await supabase.from('ordenes').select('*').eq('preference_id', prefId).single();
           order = data;
         }
-        if (!order) {
+        if (!order && pool) {
           order = await getOrderByPreference(prefId);
         }
       }
@@ -429,7 +512,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
     }
 
     if (status === 'approved') {
-      if (order.status === 'PAGADA') {
+      if (order.status === 'PAGADA' && order.qr_token) {
         return res.status(200).json({ ok: true, message: 'Orden ya registrada como PAGADA' });
       }
 
@@ -455,7 +538,7 @@ app.get('/api/orders/:id/qr', async (req, res) => {
       order = data;
     }
 
-    if (!order) {
+    if (!order && pool) {
       order = await getOrderById(Number(id));
     }
 
@@ -534,7 +617,6 @@ app.post('/api/validador/scan', async (req, res) => {
     const esUUID = String(tokenRecibido).includes('-');
 
     if (esUUID) {
-      // Buscar el evento por su validador_token único
       if (supabase) {
         const { data: eventoData } = await supabase
           .from('eventos')
@@ -548,7 +630,6 @@ app.post('/api/validador/scan', async (req, res) => {
         if (result.rowCount > 0) eventoIdAutorizado = result.rows[0].id;
       }
     } else {
-      // Respaldo para compatibilidad con ID numérico directo
       eventoIdAutorizado = Number(tokenRecibido);
     }
 
@@ -568,7 +649,7 @@ app.post('/api/validador/scan', async (req, res) => {
       order = data;
     }
 
-    if (!order) {
+    if (!order && pool) {
       order = await getOrderById(decoded.order_id);
     }
 
@@ -627,3 +708,5 @@ initDb()
   .catch((err) => {
     console.error('No se pudo inicializar la base de datos local (usando Supabase por defecto):', err.message || err);
   });
+
+```

@@ -1,7 +1,17 @@
 let map = null;
+let markersLayer = null;
 let eventosData = [];
 let carruselIntervalo = null;
 let currentIndex = 0;
+
+// Función de ayuda para normalizar texto (evita errores con tildes y mayúsculas)
+function normalizarTexto(texto) {
+    return (texto || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+}
 
 function renderizarSesion() {
     const contenedor = document.getElementById('contenedor-boton-sesion');
@@ -72,6 +82,9 @@ function inicializarMapa() {
             attribution: '© OpenStreetMap contributors'
         }).addTo(map);
 
+        // Capa dinámica para limpiar y agregar pines
+        markersLayer = L.layerGroup().addTo(map);
+
         setTimeout(() => map.invalidateSize(), 300);
     } catch (err) {
         console.error("Error mapa:", err);
@@ -79,31 +92,55 @@ function inicializarMapa() {
 }
 
 // 2. RENDERIZAR MARCADORES DEL MAPA
-function renderizarMarcadoresMapa() {
-    if (!map || !eventosData) return;
-    eventosData.forEach(ev => {
+function renderizarMarcadoresMapa(lista = eventosData) {
+    if (!map || !markersLayer) return;
+
+    // Limpia los pines anteriores
+    markersLayer.clearLayers();
+
+    const bounds = [];
+
+    lista.forEach(ev => {
         if (ev.lat && ev.lng) {
-            L.marker([ev.lat, ev.lng])
-                .addTo(map)
-                .bindPopup(`<b>${ev.titulo}</b><br>${ev.direccion || ev.comuna}`);
+            const precioMin = ev.categorias && ev.categorias.length > 0 ? ev.categorias[0].precio : 0;
+            const fechaTxt = formatearFechaLegible(ev.fecha);
+
+            const popupHTML = `
+                <div class="text-zinc-900 font-sans p-1 min-w-[180px]">
+                    <strong class="text-sm block font-bold mb-1">${ev.titulo}</strong>
+                    <p class="text-xs text-zinc-600 mb-1">${fechaTxt}</p>
+                    <p class="text-xs text-zinc-600 mb-2">📍 ${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()})</p>
+                    <p class="text-xs font-black text-zinc-900 mb-3">Desde $${precioMin.toLocaleString('es-CL')} CLP</p>
+                    <button onclick="irAlCheckout(${ev.id})" class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black text-xs py-2 px-3 rounded-lg cursor-pointer uppercase tracking-wider transition shadow">
+                        Comprar entradas
+                    </button>
+                </div>
+            `;
+
+            const marker = L.marker([ev.lat, ev.lng]).bindPopup(popupHTML);
+            markersLayer.addLayer(marker);
+            bounds.push([ev.lat, ev.lng]);
         }
     });
+
+    // Si hay pines encontrados, auto-enfoca el mapa
+    if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+    }
 }
 
-// 3. RENDERIZAR CARRUSEL COMPLETO SIN LÍMITE
+// 3. RENDERIZAR CARRUSEL COMPLETO
 function renderizarCarruselSuperior() {
     const container = document.getElementById('carousel-inner');
     if (!container || eventosData.length === 0) return;
 
     container.innerHTML = '';
     
-    // Mostramos TODOS los eventos disponibles en lugar de recortarlos
     eventosData.forEach((ev, idx) => {
         const flyer = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=1200';
         const fechaFormateada = formatearFechaLegible(ev.fecha);
         const slide = document.createElement('div');
         
-        // La primera diapositiva es visible (opacity-100 z-10) y las demás quedan ocultas (opacity-0 z-0)
         slide.className = `carousel-item absolute inset-0 w-full h-full transition-opacity duration-700 ease-in-out ${idx === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0'} flex items-center justify-start px-12 md:px-24 bg-cover bg-center bg-no-repeat`;
         slide.style.backgroundImage = `linear-gradient(to right, rgba(0,0,0,0.85), rgba(0,0,0,0.3)), url('${flyer}')`;
 
@@ -117,7 +154,7 @@ function renderizarCarruselSuperior() {
                 <p class="text-sm text-gray-300 line-clamp-2">${ev.descripcion || ''}</p>
                 <p class="text-md text-gray-200">📍 ${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()}) — Desde $${precioMin.toLocaleString('es-CL')} CLP</p>
                 
-                <button onclick="irAlCheckout(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-lg text-lg transition shadow-lg mt-2">
+                <button onclick="irAlCheckout(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-lg text-lg transition shadow-lg mt-2 cursor-pointer">
                     Comprar entradas
                 </button>
             </div>
@@ -125,20 +162,17 @@ function renderizarCarruselSuperior() {
         container.appendChild(slide);
     });
 
-    // Activa la rotación automática y los controles de flecha
     configurarControlesYAutoplayCarrusel();
 }
 
-// 4. LÓGICA DE ROTACIÓN AUTOMÁTICA Y FLECHAS DE NAVEGACIÓN
+// 4. LÓGICA DE ROTACIÓN AUTOMÁTICA Y FLECHAS
 function cambiarDiapositiva(siguienteIndice) {
     const slides = document.querySelectorAll('.carousel-item');
     if (slides.length <= 1) return;
 
-    // Oculta la diapositiva actual
     slides[currentIndex].classList.replace('opacity-100', 'opacity-0');
     slides[currentIndex].classList.replace('z-10', 'z-0');
 
-    // Muestra la nueva diapositiva
     currentIndex = siguienteIndice;
     slides[currentIndex].classList.replace('opacity-0', 'opacity-100');
     slides[currentIndex].classList.replace('z-0', 'z-10');
@@ -148,16 +182,13 @@ function configurarControlesYAutoplayCarrusel() {
     const slides = document.querySelectorAll('.carousel-item');
     if (slides.length <= 1) return;
 
-    // Reinicia el temporizador si ya existía uno activo
     if (carruselIntervalo) clearInterval(carruselIntervalo);
 
-    // Cambia automáticamente de evento cada 5 segundos (5000 ms)
     carruselIntervalo = setInterval(() => {
         const siguiente = (currentIndex + 1) % slides.length;
         cambiarDiapositiva(siguiente);
     }, 5000);
 
-    // Botón Siguiente (Flecha Derecha)
     const btnNext = document.getElementById('nextBtn');
     if (btnNext) {
         btnNext.onclick = () => {
@@ -167,7 +198,6 @@ function configurarControlesYAutoplayCarrusel() {
         };
     }
 
-    // Botón Anterior (Flecha Izquierda)
     const btnPrev = document.getElementById('prevBtn');
     if (btnPrev) {
         btnPrev.onclick = () => {
@@ -214,7 +244,7 @@ function renderizarGrillasPorCategoria() {
                 <h3 class="text-2xl font-black text-zinc-900 mb-1">${ev.titulo}</h3>
                 <p class="text-xs text-gray-500 mb-3 line-clamp-2">${ev.descripcion || 'Sin descripción'}</p>
                 <p class="text-gray-900 font-black text-lg mb-6">$${precioMin.toLocaleString('es-CL')} CLP</p>
-                <button onclick="irAlCheckout(${ev.id})" class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm">
+                <button onclick="irAlCheckout(${ev.id})" class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm cursor-pointer">
                     Comprar Entradas
                 </button>
             `;
@@ -223,7 +253,46 @@ function renderizarGrillasPorCategoria() {
     });
 }
 
-// 6. CARGAR DATOS DE INICIO
+// 6. FUNCIONES DE FILTRADO (BUSCAR Y LIMPIAR)
+function aplicarFiltrosBusqueda() {
+    const inputComuna = document.getElementById('filtro-comuna');
+    const inputFecha = document.getElementById('filtro-fecha');
+
+    const comunaSeleccionada = normalizarTexto(inputComuna ? inputComuna.value : 'todas');
+    const fechaSeleccionada = inputFecha ? inputFecha.value : ''; // Formato: YYYY-MM-DD
+
+    const eventosFiltrados = eventosData.filter(ev => {
+        // Coincidencia de comuna
+        const comunaEv = normalizarTexto(ev.comuna);
+        const matchComuna = (comunaSeleccionada === 'todas' || comunaEv === comunaSeleccionada);
+
+        // Coincidencia de fecha
+        let matchFecha = true;
+        if (fechaSeleccionada) {
+            const fechaEvFormato = (ev.fecha || '').slice(0, 10);
+            matchFecha = (fechaEvFormato === fechaSeleccionada);
+        }
+
+        return matchComuna && matchFecha;
+    });
+
+    renderizarMarcadoresMapa(eventosFiltrados);
+}
+
+function limpiarFiltrosBusqueda() {
+    const inputComuna = document.getElementById('filtro-comuna');
+    const inputFecha = document.getElementById('filtro-fecha');
+
+    if (inputComuna) inputComuna.value = 'todas';
+    if (inputFecha) inputFecha.value = '';
+
+    renderizarMarcadoresMapa(eventosData);
+    if (map) {
+        map.setView([-33.435, -70.620], 12);
+    }
+}
+
+// 7. CARGAR DATOS DE INICIO
 async function cargarDatosInicio() {
     inicializarMapa();
 
@@ -248,7 +317,7 @@ async function cargarDatosInicio() {
 
     renderizarCarruselSuperior();
     renderizarGrillasPorCategoria();
-    renderizarMarcadoresMapa();
+    renderizarMarcadoresMapa(eventosData);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

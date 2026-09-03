@@ -1,6 +1,6 @@
 ﻿// routes/auth.js
 import express from 'express';
-import { Resend } from 'resend';
+//import { Resend } from 'resend';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, sanitizeText } from '../db.js';
@@ -9,7 +9,7 @@ const router = express.Router();
 const jwtSecret = process.env.JWT_SECRET || 'supersecretlocal';
 const verificationTTL = Number(process.env.VERIFICATION_TTL_MS) || 15 * 60 * 1000;
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+//const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function sendVerificationEmail(to, code) {
   if (!process.env.RESEND_API_KEY) {

@@ -5,9 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Checkout - Vive Ticket</title>
     <!-- Tailwind CSS -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- SDK de Mercado Pago -->
     <script src="https://sdk.mercadopago.com/js/v2"></script>
+   
 </head>
 <body class="bg-gray-100 p-4 md:p-8 font-sans text-gray-900 min-h-screen flex flex-col justify-between">
 
@@ -55,11 +60,11 @@
             
             <form id="form-comprador" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="md:col-span-2">
-                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Fecha de Asistencia:</label>
+                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Fecha de asistencia:</label>
                     <input type="date" id="calendario-funcion" class="border p-3 w-full rounded-xl bg-gray-50 outline-none focus:border-amber-500 font-semibold" required>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Nombre y Apellido:</label>
+                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Nombre y apellido:</label>
                     <input type="text" id="comprador-nombre" placeholder="Ej. Ana María Pérez" class="border p-3 w-full rounded-xl outline-none focus:border-amber-500" required>
                 </div>
                 <div>
@@ -67,11 +72,11 @@
                     <input type="tel" id="comprador-whatsapp" placeholder="Ej. 912345678" class="border p-3 w-full rounded-xl outline-none focus:border-amber-500" required>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Correo Electrónico:</label>
+                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Correo electrónico:</label>
                     <input type="email" id="comprador-email" placeholder="correo@ejemplo.cl" class="border p-3 w-full rounded-xl outline-none focus:border-amber-500" required>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Confirmar Correo Electrónico:</label>
+                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Confirmar correo electrónico:</label>
                     <input type="email" id="comprador-email-confirm" placeholder="Repite tu correo" class="border p-3 w-full rounded-xl outline-none focus:border-amber-500" required>
                 </div>
             </form>
@@ -203,14 +208,15 @@
 
             const btnPagar = document.getElementById('btn-pagar');
             btnPagar.disabled = true;
-            btnPagar.innerText = "⏳ Cuestionando pasarela de pago...";
+            btnPagar.innerText = "⏳ Conectando con pasarela de pago...";
 
             try {
-                // Petición a tu servidor Node.js
+                // Petición a tu servidor Node.js enviando taller_id garantizado
                 const response = await fetch('/api/create-preference', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        taller_id: eventoData.id,
                         titulo: eventoData.titulo,
                         precioUnitario: precioUnitario,
                         cantidad: cantidad,
@@ -226,13 +232,13 @@
                 } else {
                     alert("No se pudo iniciar el proceso de pago. Intenta de nuevo.");
                     btnPagar.disabled = false;
-                    btnPagar.innerText = "💳 Confirmar y Pagar Entradas";
+                    btnPagar.innerText = "💳 Confirmar y pagar entradas";
                 }
             } catch (error) {
                 console.error("Error al procesar el pago:", error);
                 alert("Ocurrió un error al conectar con el servidor.");
                 btnPagar.disabled = false;
-                btnPagar.innerText = "💳 Confirmar y Pagar Entradas";
+                btnPagar.innerText = "💳 Confirmar y pagar entradas";
             }
         }
 

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
@@ -42,6 +43,8 @@ if (mpAccessToken) {
 } else {
   console.warn('Mercado Pago no está configurado. Define MERCADOPAGO_ACCESS_TOKEN en tu .env');
 }
+console.log('>>> [DEBUG] process.env.MERCADOPAGO_ACCESS_TOKEN:', process.env.MERCADOPAGO_ACCESS_TOKEN ? 'Existe' : 'No encontrado (undefined)');
+console.log('>>> [DEBUG] mpClient inicializado:', Boolean(mpClient));
 
 const sanitizeText = (value) => {
   if (typeof value !== 'string') return '';
@@ -49,9 +52,17 @@ const sanitizeText = (value) => {
 };
 
 // Middlewares globales
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Servir favicon explícitamente para evitar 500 / 404
+app.get('/favicon.ico', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'favicon.ico'), (err) => {
+    if (err) res.status(204).end();
+  });
+});
 
 // RUTAS API
 app.use('/api/auth', authRoutes);
@@ -110,6 +121,7 @@ app.get('/api/eventos', async (req, res) => {
       direccion: evento.direccion || '',
       lat: evento.lat ?? null,
       lng: evento.lng ?? null,
+      validador_token: evento.validador_token || null
     }));
 
     return res.json(eventos);
@@ -151,7 +163,8 @@ app.post('/api/eventos', async (req, res) => {
       lng: Number(lng) || null,
       categorias: Array.isArray(categorias) ? categorias : [],
       tickets_max: Number(ticketsMax) || 40,
-      imagen: imagen || null
+      imagen: imagen || null,
+      validador_token: crypto.randomUUID()
     };
 
     const { data, error } = await supabase
@@ -232,13 +245,52 @@ app.put('/api/eventos/:id', async (req, res) => {
   }
 });
 
+// ELIMINAR UN EVENTO EXISTENTE
+app.delete('/api/eventos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'ID de evento requerido.' });
+
+    // 1. Eliminar en Supabase
+    if (supabase) {
+      await supabase.from('ordenes').delete().eq('taller_id', Number(id));
+
+      const { error } = await supabase
+        .from('eventos')
+        .delete()
+        .eq('id', Number(id));
+
+      if (error) {
+        console.error('Error eliminando evento en Supabase:', error.message);
+        return res.status(500).json({ error: 'No se pudo eliminar el evento', details: error.message });
+      }
+    }
+
+    // 2. Eliminar en BD local pool si aplica
+    if (pool) {
+      try {
+        await pool.query('DELETE FROM ordenes WHERE taller_id = $1', [Number(id)]);
+        await pool.query('DELETE FROM eventos WHERE id = $1', [Number(id)]);
+      } catch (err) {
+        console.warn('Advertencia borrando evento local:', err.message);
+      }
+    }
+
+    return res.json({ ok: true, message: 'Evento eliminado exitosamente' });
+  } catch (error) {
+    console.error('Error interno al eliminar evento:', error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // MERCADO PAGO - CREAR PREFERENCIA
 app.post('/api/create-preference', async (req, res) => {
   if (!mpClient) {
     return res.status(503).json({ error: 'Mercado Pago no está configurado. Define MERCADOPAGO_ACCESS_TOKEN en .env' });
   }
 
-  const { titulo, precioUnitario, cantidad, comprador, user_id, taller_id } = req.body || {};
+  const { titulo, precioUnitario, cantidad, comprador, user_id } = req.body || {};
+  const taller_id = req.body?.taller_id || req.body?.evento_id || req.body?.tallerId || req.body?.id || null;
 
   if (!titulo || !Number.isFinite(Number(precioUnitario)) || Number(precioUnitario) <= 0 || !Number.isFinite(Number(cantidad)) || Number(cantidad) <= 0) {
     return res.status(400).json({ error: 'Datos de pago inválidos. Asegúrate de enviar título, precio unitario y cantidad.' });
@@ -253,14 +305,41 @@ app.post('/api/create-preference', async (req, res) => {
   }
 
   try {
-    // 1) Crear orden PENDIENTE en BD
-    const order = await createOrder({ user_id: user_id || null, taller_id: taller_id || null, cantidad: Number(cantidad) || 1, preference_id: null });
+    let order = null;
+    try {
+      order = await createOrder({ 
+        user_id: user_id ? Number(user_id) : null, 
+        taller_id: taller_id ? Number(taller_id) : null, 
+        cantidad: Number(cantidad) || 1, 
+        preference_id: null 
+      });
+    } catch (dbErr) {
+      console.warn('Fallo al crear orden con helper local, usando Supabase:', dbErr.message);
+    }
 
-    // Definir URLs dinámicas usando las variables de entorno
+    if (!order && supabase) {
+      const { data: ordenSupabase, error: errSupabase } = await supabase
+        .from('ordenes')
+        .insert([{
+          user_id: user_id ? Number(user_id) : null,
+          taller_id: taller_id ? Number(taller_id) : null,
+          cantidad: Number(cantidad) || 1,
+          status: 'PENDIENTE'
+        }])
+        .select()
+        .single();
+
+      if (errSupabase) throw errSupabase;
+      order = ordenSupabase;
+    }
+
+    if (!order) {
+      throw new Error('No se pudo inicializar la orden en la base de datos.');
+    }
+
     const clientUrl = process.env.CLIENT_URL || `https://${req.get('host')}`;
     const webhookUrl = process.env.WEBHOOK_URL || null;
 
-    // 2) Crear preferencia en Mercado Pago usando SDK v2
     const preference = new Preference(mpClient);
     const preferencePayload = {
       body: {
@@ -293,15 +372,25 @@ app.post('/api/create-preference', async (req, res) => {
 
     const preferenceResult = await preference.create(preferencePayload);
 
-    // 3) Guardar preference_id en la orden local y en Supabase si aplica
     try {
-      if (pool) await pool.query(`UPDATE ordenes SET preference_id = $1 WHERE id = $2`, [preferenceResult.id, order.id]);
+      if (pool) {
+        await pool.query(
+          `UPDATE ordenes SET preference_id = $1, taller_id = COALESCE(taller_id, $2) WHERE id = $3`, 
+          [preferenceResult.id, taller_id ? Number(taller_id) : null, order.id]
+        );
+      }
     } catch (e) {
       console.warn('No se pudo actualizar DB local pool:', e.message);
     }
 
     if (supabase) {
-      await supabase.from('ordenes').update({ preference_id: preferenceResult.id }).eq('id', order.id);
+      await supabase
+        .from('ordenes')
+        .update({ 
+          preference_id: preferenceResult.id,
+          taller_id: taller_id ? Number(taller_id) : order.taller_id
+        })
+        .eq('id', order.id);
     }
 
     return res.status(200).json({ preference_id: preferenceResult.id, init_point: preferenceResult.init_point, order_id: order.id });
@@ -315,25 +404,25 @@ app.post('/api/create-preference', async (req, res) => {
 async function processOrderPayment(orderId, tallerId, cantidad) {
   const qrSecret = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr_secret_change_me';
   
-  // Generar qr_token (JWT sin expiración por fecha)
-  const token = jwt.sign({ order_id: orderId, taller_id: tallerId }, qrSecret);
+  const token = jwt.sign({ order_id: Number(orderId), taller_id: tallerId ? Number(tallerId) : null }, qrSecret);
 
-  // Marcar orden como PAGADA en la base de datos local si existe pool
   try {
     if (pool) await markOrderPaid(orderId, token);
   } catch (err) {
     console.warn('No se pudo marcar como pagada en DB local pool:', err.message);
   }
 
-  // Marcar orden como PAGADA en Supabase
   if (supabase) {
-    const { error } = await supabase.from('ordenes').update({ status: 'PAGADA', qr_token: token }).eq('id', orderId);
+    const { error } = await supabase
+      .from('ordenes')
+      .update({ status: 'PAGADA', qr_token: token, taller_id: tallerId ? Number(tallerId) : null })
+      .eq('id', Number(orderId));
+
     if (error) {
       console.error('Error actualizando estado en Supabase:', error.message);
     }
   }
 
-  // Descontar cupos según cantidad
   try {
     if (tallerId) await deductSeats(tallerId, Number(cantidad) || 1);
   } catch (err) {
@@ -355,13 +444,13 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
       order = data;
     }
 
-    if (!order) {
+    if (!order && pool) {
       order = await getOrderById(Number(order_id));
     }
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    if (order.status === 'PAGADA') {
+    if (order.status === 'PAGADA' && order.qr_token) {
       return res.json({ ok: true, message: 'La orden ya estaba registrada como PAGADA', qr_token: order.qr_token });
     }
 
@@ -380,7 +469,6 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       return res.status(503).json({ ok: false, error: 'Mercado Pago no está configurado.' });
     }
 
-    // Intentar extraer id de pago desde body o query
     let body;
     try { body = JSON.parse(req.body.toString()); } catch (e) { body = req.body; }
 
@@ -394,7 +482,6 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
     const payment = await paymentInstance.get({ id: paymentId });
     const status = (payment?.status || payment?.collection?.status || '').toString().toLowerCase();
 
-    // Tratar de resolver la orden: buscar external_reference o preference_id
     const externalRef = (payment?.external_reference) || (payment?.order?.external_reference) || (payment?.collection?.external_reference) || (payment?.preference_id) || (payment?.collection?.preference_id) || null;
 
     let order = null;
@@ -403,7 +490,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
         const { data } = await supabase.from('ordenes').select('*').eq('id', Number(externalRef)).single();
         order = data;
       }
-      if (!order) {
+      if (!order && pool) {
         order = await getOrderById(Number(externalRef));
       }
     }
@@ -415,7 +502,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
           const { data } = await supabase.from('ordenes').select('*').eq('preference_id', prefId).single();
           order = data;
         }
-        if (!order) {
+        if (!order && pool) {
           order = await getOrderByPreference(prefId);
         }
       }
@@ -426,7 +513,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
     }
 
     if (status === 'approved') {
-      if (order.status === 'PAGADA') {
+      if (order.status === 'PAGADA' && order.qr_token) {
         return res.status(200).json({ ok: true, message: 'Orden ya registrada como PAGADA' });
       }
 
@@ -452,7 +539,7 @@ app.get('/api/orders/:id/qr', async (req, res) => {
       order = data;
     }
 
-    if (!order) {
+    if (!order && pool) {
       order = await getOrderById(Number(id));
     }
 
@@ -470,12 +557,49 @@ app.get('/api/orders/:id/qr', async (req, res) => {
   }
 });
 
+// OBTENER INFORMACIÓN DEL EVENTO PARA VALIDADOR.HTML
+app.get('/api/validador/info/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    if (!token) return res.status(400).json({ error: 'Token requerido' });
+
+    let evento = null;
+    const esUUID = String(token).includes('-');
+
+    if (supabase) {
+      const query = supabase.from('eventos').select('id, titulo, fecha, comuna');
+      const { data } = esUUID 
+        ? await query.eq('validador_token', token).single()
+        : await query.eq('id', Number(token)).single();
+      evento = data;
+    }
+
+    if (!evento && pool) {
+      const sql = esUUID 
+        ? 'SELECT id, titulo, fecha, comuna FROM eventos WHERE validador_token = $1'
+        : 'SELECT id, titulo, fecha, comuna FROM eventos WHERE id = $1';
+      const result = await pool.query(sql, [token]);
+      if (result.rowCount > 0) evento = result.rows[0];
+    }
+
+    if (!evento) {
+      return res.status(404).json({ error: 'Evento no encontrado o token inválido' });
+    }
+
+    return res.json({ ok: true, evento });
+  } catch (error) {
+    console.error('Error obteniendo info del validador:', error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // VALIDAR CÓDIGO QR ESCANEADO DESDE VALIDADOR.HTML
 app.post('/api/validador/scan', async (req, res) => {
   try {
-    const { qr_token, taller_id_actual } = req.body;
+    const { qr_token, organizador_token, taller_id_actual } = req.body;
+    const tokenRecibido = organizador_token || taller_id_actual;
 
-    if (!qr_token || !taller_id_actual) {
+    if (!qr_token || !tokenRecibido) {
       return res.status(400).json({ valid: false, message: 'Faltan datos para validar.' });
     }
 
@@ -489,19 +613,44 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(401).json({ valid: false, message: 'Código QR inválido o falsificado.' });
     }
 
-    // 2. Verificar que el QR pertenezca al taller correspondiente
-    if (String(decoded.taller_id) !== String(taller_id_actual)) {
+    // 2. Resolver el ID del evento según si recibimos un UUID seguro o un ID numérico
+    let eventoIdAutorizado = null;
+    const esUUID = String(tokenRecibido).includes('-');
+
+    if (esUUID) {
+      if (supabase) {
+        const { data: eventoData } = await supabase
+          .from('eventos')
+          .select('id, titulo')
+          .eq('validador_token', tokenRecibido)
+          .single();
+        if (eventoData) eventoIdAutorizado = eventoData.id;
+      }
+      if (!eventoIdAutorizado && pool) {
+        const result = await pool.query('SELECT id, titulo FROM eventos WHERE validador_token = $1', [tokenRecibido]);
+        if (result.rowCount > 0) eventoIdAutorizado = result.rows[0].id;
+      }
+    } else {
+      eventoIdAutorizado = Number(tokenRecibido);
+    }
+
+    if (!eventoIdAutorizado) {
+      return res.status(403).json({ valid: false, message: 'Enlace de validador no autorizado o caducado.' });
+    }
+
+    // 3. Verificar que el QR pertenezca al taller correspondiente
+    if (String(decoded.taller_id) !== String(eventoIdAutorizado)) {
       return res.status(403).json({ valid: false, message: 'Este QR pertenece a otro taller/evento.' });
     }
 
-    // 3. Buscar la orden
+    // 4. Buscar la orden
     let order = null;
     if (supabase) {
       const { data } = await supabase.from('ordenes').select('*').eq('id', decoded.order_id).single();
       order = data;
     }
 
-    if (!order) {
+    if (!order && pool) {
       order = await getOrderById(decoded.order_id);
     }
 
@@ -509,7 +658,7 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(404).json({ valid: false, message: 'Orden no encontrada en la base de datos.' });
     }
 
-    // 4. Verificar estado de uso
+    // 5. Verificar estado de uso
     if (order.status === 'USADA') {
       return res.status(409).json({ valid: false, message: '¡ALERTA! Esta entrada ya fue escaneada y utilizada.' });
     }
@@ -518,7 +667,7 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(400).json({ valid: false, message: `La entrada tiene estado: ${order.status}. No autorizada.` });
     }
 
-    // 5. Marcar como USADA
+    // 6. Marcar como USADA
     if (supabase) {
       await supabase.from('ordenes').update({ status: 'USADA' }).eq('id', order.id);
     }

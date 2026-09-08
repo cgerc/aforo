@@ -27,11 +27,11 @@ function renderizarSesion() {
 
     if (localStorage.getItem('token_ticketera')) {
         const nombre = usuario?.nombre || 'Organizador';
-        contenedor.innerHTML = `<a href="dashboard.html" class="text-amber-400 hover:text-amber-300 transition">Hola, ${nombre}</a>`;
+        contenedor.innerHTML = `<a href="dashboard.html" class="text-emerald-700 hover:text-emerald-500 font-bold transition">Hola, ${nombre}</a>`;
         return;
     }
 
-    contenedor.innerHTML = '<a href="login.html" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black px-4 py-2 rounded-lg transition">Portal de organizadores</a>';
+    contenedor.innerHTML = '<a href="login.html" class="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-bold px-4 py-2 rounded-xl transition shadow-sm inline-block">Portal de organizadores</a>';
 }
 
 // Redirección al checkout
@@ -95,7 +95,6 @@ function inicializarMapa() {
 function renderizarMarcadoresMapa(lista = eventosData) {
     if (!map || !markersLayer) return;
 
-    // Limpia los pines anteriores
     markersLayer.clearLayers();
 
     const bounds = [];
@@ -111,7 +110,7 @@ function renderizarMarcadoresMapa(lista = eventosData) {
                     <p class="text-xs text-zinc-600 mb-1">${fechaTxt}</p>
                     <p class="text-xs text-zinc-600 mb-2">📍 ${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()})</p>
                     <p class="text-xs font-black text-zinc-900 mb-3">Desde $${precioMin.toLocaleString('es-CL')} CLP</p>
-                    <button onclick="irAlCheckout(${ev.id})" class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black text-xs py-2 px-3 rounded-lg cursor-pointer uppercase tracking-wider transition shadow">
+                    <button onclick="irAlCheckout(${ev.id})" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs py-2 px-3 rounded-lg cursor-pointer uppercase tracking-wider transition shadow">
                         Comprar entradas
                     </button>
                 </div>
@@ -123,7 +122,6 @@ function renderizarMarcadoresMapa(lista = eventosData) {
         }
     });
 
-    // Si hay pines encontrados, auto-enfoca el mapa
     if (bounds.length > 0) {
         map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
     }
@@ -148,13 +146,13 @@ function renderizarCarruselSuperior() {
 
         slide.innerHTML = `
             <div class="max-w-2xl text-white space-y-3">
-                <span class="bg-amber-500 text-zinc-950 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider">${ev.categoria || 'Evento'}</span>
+                <span class="bg-emerald-500/90 text-white text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider">${ev.categoria || 'Evento'}</span>
                 <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight">${ev.titulo}</h1>
-                <p class="text-amber-400 font-bold text-sm flex items-center gap-1">${fechaFormateada}</p>
+                <p class="text-emerald-400 font-bold text-sm flex items-center gap-1">${fechaFormateada}</p>
                 <p class="text-sm text-gray-300 line-clamp-2">${ev.descripcion || ''}</p>
                 <p class="text-md text-gray-200">📍 ${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()}) — Desde $${precioMin.toLocaleString('es-CL')} CLP</p>
                 
-                <button onclick="irAlCheckout(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-lg text-lg transition shadow-lg mt-2 cursor-pointer">
+                <button onclick="irAlCheckout(${ev.id})" class="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold px-6 py-3 rounded-xl text-lg transition shadow-lg shadow-emerald-950/30 mt-2 cursor-pointer inline-block">
                     Comprar entradas
                 </button>
             </div>
@@ -237,14 +235,14 @@ function renderizarGrillasPorCategoria() {
                     <img src="${flyerImg}" class="w-full h-full object-cover rounded-xl" alt="${ev.titulo}">
                 </div>
                 
-                <div class="bg-amber-50 text-amber-900 border border-amber-200/60 rounded-lg px-3 py-1.5 text-xs font-bold mb-4 w-full">
+                <div class="bg-emerald-50 text-emerald-900 border border-emerald-200/60 rounded-lg px-3 py-1.5 text-xs font-bold mb-4 w-full">
                     ${fechaFormateada}
                 </div>
                 
                 <h3 class="text-2xl font-black text-zinc-900 mb-1">${ev.titulo}</h3>
                 <p class="text-xs text-gray-500 mb-3 line-clamp-2">${ev.descripcion || 'Sin descripción'}</p>
                 <p class="text-gray-900 font-black text-lg mb-6">$${precioMin.toLocaleString('es-CL')} CLP</p>
-                <button onclick="irAlCheckout(${ev.id})" class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm cursor-pointer">
+                <button onclick="irAlCheckout(${ev.id})" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm cursor-pointer">
                     Comprar Entradas
                 </button>
             `;
@@ -259,14 +257,12 @@ function aplicarFiltrosBusqueda() {
     const inputFecha = document.getElementById('filtro-fecha');
 
     const comunaSeleccionada = normalizarTexto(inputComuna ? inputComuna.value : 'todas');
-    const fechaSeleccionada = inputFecha ? inputFecha.value : ''; // Formato: YYYY-MM-DD
+    const fechaSeleccionada = inputFecha ? inputFecha.value : '';
 
     const eventosFiltrados = eventosData.filter(ev => {
-        // Coincidencia de comuna
         const comunaEv = normalizarTexto(ev.comuna);
         const matchComuna = (comunaSeleccionada === 'todas' || comunaEv === comunaSeleccionada);
 
-        // Coincidencia de fecha
         let matchFecha = true;
         if (fechaSeleccionada) {
             const fechaEvFormato = (ev.fecha || '').slice(0, 10);

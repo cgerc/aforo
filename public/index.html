@@ -33,27 +33,21 @@
 <body class="bg-gray-50 text-gray-900 font-sans">
 
     <!-- NAVBAR DINÁMICA -->
-    <nav class="bg-zinc-950 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-[1000] border-b border-zinc-800/80">
-        <div class="flex items-center gap-8">
-            <!-- LOGO: Asegúrate de tener la imagen del isotipo en tu carpeta o usa la ruta correcta -->
-            <a href="#" class="flex items-center gap-2.5 group">
-                <img src="logo.png" alt="Vive Ticket" class="h-8 w-auto object-contain transition-transform group-hover:scale-105" onerror="this.style.display='none'">
-                <span class="text-xl md:text-2xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">
-                    VIVE TICKET
-                </span>
+    <nav class="bg-white text-zinc-900 px-6 md:px-10 py-3.5 flex justify-between items-center sticky top-0 z-[1000] border-b border-gray-100 shadow-sm">
+        <div class="flex items-center gap-6 lg:gap-10">
+            <!-- LOGO: Isotipo + Tipografía espaciada -->
+            <a href="/" class="flex items-center gap-3 shrink-0 group">
+                <img 
+                    src="vive ticket logo.PNG" 
+                    alt="Vive Ticket" 
+                    class="h-9 md:h-10 w-auto object-contain transition-transform group-hover:scale-105"
+                    onerror="this.style.display='none'"
+                >
+            
             </a>
-
-            <!-- BARRA DE BÚSQUEDA -->
-            <div class="hidden md:flex bg-zinc-900/90 border border-zinc-800 focus-within:border-emerald-500 rounded-full px-4 py-2 w-80 items-center transition">
-                <svg class="w-4 h-4 text-zinc-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                </svg>
-                <input type="text" id="input-buscar-global" placeholder="Buscar eventos, talleres..." class="bg-transparent border-none outline-none text-sm w-full text-gray-200 placeholder-zinc-500">
-            </div>
-        </div>
         
         <div class="flex items-center gap-5 text-sm font-semibold">
-            <a href="#" class="text-zinc-300 hover:text-emerald-400 transition hidden sm:inline">Arriendo de espacios</a>
+            <a href="#" class="text-zinc-800 hover:text-emerald-700 transition hidden sm:inline">Arriendo de espacios</a>
             
             <!-- CONTENEDOR DINÁMICO DE BOTÓN DE SESIÓN (ej. Portal de organizadores) -->
             <div id="contenedor-boton-sesion">
@@ -87,7 +81,7 @@
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Salud mental</h2>
                 <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                    Máx 40 cupos
+                    Máx 10 cupos
                 </span>
             </div>
             <div id="grid-Salud mental" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
@@ -98,7 +92,7 @@
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Entretenimiento</h2>
                 <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                    Máx 40 cupos
+                    Máx 10 cupos
                 </span>
             </div>
             <div id="grid-Entretenimiento" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
@@ -109,7 +103,7 @@
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Educación</h2>
                 <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                    Máx 40 cupos
+                    Máx 10 cupos
                 </span>
             </div>
             <div id="grid-Educación" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
@@ -120,7 +114,7 @@
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Cultura</h2>
                 <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                    Máx 40 cupos
+                    Máx 10 cupos
                 </span>
             </div>
             <div id="grid-Cultura" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>

@@ -1,186 +1,42 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vive Ticket</title>
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-    <link rel="manifest" href="/site.webmanifest">
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        brand: {
-                            dark: '#1e3a2b',      // Verde bosque profundo del logo
-                            primary: '#10b981',   // Esmeralda principal
-                            turquesa: '#06b6d4',  // Turquesa acento
-                            mint: '#6ee7b7',      // Menta claro
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-</head>
-<body class="bg-gray-50 text-gray-900 font-sans">
-
-    <!-- NAVBAR DINÁMICA -->
-    <nav class="bg-zinc-950 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-[1000] border-b border-zinc-800/80">
+<!-- NAVBAR DINÁMICA (FONDO BLANCO) -->
+    <nav class="bg-white text-gray-900 px-6 py-3 flex justify-between items-center sticky top-0 z-[1000] border-b border-gray-200/80 shadow-sm backdrop-blur-md bg-white/95">
         <div class="flex items-center gap-8">
-            <!-- LOGO: Asegúrate de tener la imagen del isotipo en tu carpeta o usa la ruta correcta -->
-            <a href="#" class="flex items-center gap-2.5 group">
-                <img src="logo.png" alt="Vive Ticket" class="h-8 w-auto object-contain transition-transform group-hover:scale-105" onerror="this.style.display='none'">
-                <span class="text-xl md:text-2xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">
+            <!-- LOGO: Guarda tu imagen de logo en public/ como 'vive-ticket-logo.png' -->
+            <a href="/" class="flex items-center gap-3 group">
+                <img 
+                    src="vive-ticket-logo.png" 
+                    alt="Vive Ticket" 
+                    class="h-10 md:h-12 w-auto object-contain transition-transform duration-200 group-hover:scale-105"
+                >
+                <!-- Opcional si tu archivo PNG solo tiene el isotipo circular; si tu imagen ya incluye las letras, puedes quitar este span -->
+                <span class="text-xl md:text-2xl font-black tracking-[0.2em] text-[#1e3a2b] select-none">
                     VIVE TICKET
                 </span>
             </a>
 
-            <!-- BARRA DE BÚSQUEDA -->
-            <div class="hidden md:flex bg-zinc-900/90 border border-zinc-800 focus-within:border-emerald-500 rounded-full px-4 py-2 w-80 items-center transition">
-                <svg class="w-4 h-4 text-zinc-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <!-- BUSCADOR CON ADAPTACIÓN A FONDO CLARO -->
+            <div class="hidden md:flex bg-gray-100 hover:bg-gray-200/70 focus-within:bg-white focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-100 border border-transparent rounded-full px-4 py-2 w-80 items-center transition">
+                <svg class="w-4 h-4 text-gray-400 mr-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                 </svg>
-                <input type="text" id="input-buscar-global" placeholder="Buscar eventos, talleres..." class="bg-transparent border-none outline-none text-sm w-full text-gray-200 placeholder-zinc-500">
+                <input 
+                    type="text" 
+                    id="input-buscar-global" 
+                    placeholder="Buscar eventos, talleres..." 
+                    class="bg-transparent border-none outline-none text-sm w-full text-gray-800 placeholder-gray-400 font-medium"
+                >
             </div>
         </div>
         
+        <!-- ENLACES Y ACCIONES -->
         <div class="flex items-center gap-5 text-sm font-semibold">
-            <a href="#" class="text-zinc-300 hover:text-emerald-400 transition hidden sm:inline">Arriendo de espacios</a>
+            <a href="#" class="text-gray-600 hover:text-emerald-600 transition hidden sm:inline">
+                Arriendo de espacios
+            </a>
             
-            <!-- CONTENEDOR DINÁMICO DE BOTÓN DE SESIÓN (ej. Portal de organizadores) -->
+            <!-- CONTENEDOR DINÁMICO DE BOTÓN DE SESIÓN (Portal de organizadores) -->
             <div id="contenedor-boton-sesion">
                 <!-- Se dibuja dinámicamente desde app.js -->
             </div>
         </div>
     </nav>
-
-    <!-- CARRUSEL DESTACADO -->
-    <header class="relative w-full h-[500px] bg-zinc-900 overflow-hidden group">
-        <div id="carousel-inner" class="relative w-full h-full">
-            <div class="absolute inset-0 w-full h-full flex items-center justify-center text-white font-bold">
-                Cargando eventos destacados...
-            </div>
-        </div>
-
-        <button id="prevBtn" class="absolute top-0 left-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-40 hover:opacity-100 transition-opacity">
-            <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light hover:text-emerald-400">❮</span>
-        </button>
-
-        <button id="nextBtn" class="absolute top-0 right-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-40 hover:opacity-100 transition-opacity">
-            <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light hover:text-emerald-400">❯</span>
-        </button>
-    </header>
-
-    <!-- SECCIONES DE CATEGORÍAS -->
-    <main class="max-w-7xl mx-auto px-6 py-12 space-y-16">
-        
-        <!-- SALUD MENTAL -->
-        <section>
-            <div class="flex items-center gap-3 mb-8">
-                <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Salud mental</h2>
-                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                    Máx 40 cupos
-                </span>
-            </div>
-            <div id="grid-Salud mental" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
-        </section>
-
-        <!-- ENTRETENIMIENTO -->
-        <section>
-            <div class="flex items-center gap-3 mb-8">
-                <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Entretenimiento</h2>
-                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                    Máx 40 cupos
-                </span>
-            </div>
-            <div id="grid-Entretenimiento" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
-        </section>
-
-        <!-- EDUCACIÓN -->
-        <section>
-            <div class="flex items-center gap-3 mb-8">
-                <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Educación</h2>
-                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                    Máx 40 cupos
-                </span>
-            </div>
-            <div id="grid-Educación" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
-        </section>
-
-        <!-- CULTURA -->
-        <section>
-            <div class="flex items-center gap-3 mb-8">
-                <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Cultura</h2>
-                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                    Máx 40 cupos
-                </span>
-            </div>
-            <div id="grid-Cultura" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
-        </section>
-
-    </main>
-
-    <!-- MAPA -->
-    <section class="bg-zinc-950 text-white py-16 px-6 border-t border-zinc-800">
-        <div class="max-w-7xl mx-auto space-y-8">
-            <div class="text-center space-y-3">
-                <h2 class="text-3xl md:text-4xl font-black text-white tracking-tight">Busca evento por fecha o comuna</h2>
-                <p class="text-zinc-400 text-sm max-w-xl mx-auto">Filtra la disponibilidad de los talleres en el mapa e interactúa con sus ubicaciones.</p>
-            </div>
-
-            <!-- BARRA DE FILTROS -->
-            <div class="bg-zinc-900/90 p-4 rounded-2xl border border-zinc-800 flex flex-col lg:flex-row gap-4 items-center justify-between shadow-2xl backdrop-blur-sm">
-                <!-- Filtro Comuna -->
-                <div class="w-full lg:w-5/12 flex items-center gap-3 bg-zinc-950 px-4 py-3 rounded-xl border border-zinc-800 focus-within:border-emerald-500/50 transition">
-                    <span class="text-lg">📍</span>
-                    <div class="w-full">
-                        <label class="block text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Seleccionar Comuna</label>
-                        <select id="filtro-comuna" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer">
-                            <option value="todas" class="bg-zinc-900 text-white">Todas las comunas</option>
-                            <option value="providencia" class="bg-zinc-900 text-white">Providencia</option>
-                            <option value="ñuñoa" class="bg-zinc-900 text-white">Ñuñoa</option>
-                            <option value="las condes" class="bg-zinc-900 text-white">Las Condes</option>
-                            <option value="la reina" class="bg-zinc-900 text-white">La Reina</option>
-                            <option value="vitacura" class="bg-zinc-900 text-white">Vitacura</option>
-                            <option value="lo barnechea" class="bg-zinc-900 text-white">Lo Barnechea</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Filtro Fecha -->
-                <div class="w-full lg:w-4/12 flex items-center gap-3 bg-zinc-950 px-4 py-3 rounded-xl border border-zinc-800 focus-within:border-emerald-500/50 transition">
-                    <span class="text-lg">📅</span>
-                    <div class="w-full">
-                        <label class="block text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Buscar por Fecha</label>
-                        <input type="date" id="filtro-fecha" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer [color-scheme:dark]">
-                    </div>
-                </div>
-
-                <!-- Grupo de Botones: Buscar y Limpiar -->
-                <div class="w-full lg:w-auto flex flex-row gap-2.5 items-center justify-end">
-                    <button onclick="aplicarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-zinc-950 font-black px-6 py-3.5 rounded-xl transition-all duration-200 text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2">
-                        🔍 Buscar
-                    </button>
-                    <button onclick="limpiarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold px-5 py-3.5 rounded-xl transition text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer border border-zinc-700 flex items-center justify-center gap-2">
-                        🔄 Limpiar
-                    </button>
-                </div>
-            </div>
-
-            <div id="mapa" class="w-full h-[550px] rounded-2xl overflow-hidden border border-zinc-800 shadow-2xl"></div>
-        </div>
-    </section>
-
-    <!-- SCRIPTS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="app.js"></script>
-</body>
-</html>

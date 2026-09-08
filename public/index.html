@@ -13,22 +13,49 @@
     <link rel="manifest" href="/site.webmanifest">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#1e3a2b',      // Verde bosque profundo del logo
+                            primary: '#10b981',   // Esmeralda principal
+                            turquesa: '#06b6d4',  // Turquesa acento
+                            mint: '#6ee7b7',      // Menta claro
+                        }
+                    }
+                }
+            }
+        }
+    </script>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
 
     <!-- NAVBAR DINÁMICA -->
-    <nav class="bg-zinc-950 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-[1000]">
+    <nav class="bg-zinc-950 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-[1000] border-b border-zinc-800/80">
         <div class="flex items-center gap-8">
-            <span class="text-2xl font-black tracking-wider text-amber-500">VIVE TICKET</span>
-            <div class="hidden md:flex bg-zinc-800 rounded-full px-4 py-2 w-80 items-center">
-                <input type="text" id="input-buscar-global" placeholder="Buscar eventos, talleres..." class="bg-transparent border-none outline-none text-sm w-full text-gray-300 placeholder-gray-500">
+            <!-- LOGO: Asegúrate de tener la imagen del isotipo en tu carpeta o usa la ruta correcta -->
+            <a href="#" class="flex items-center gap-2.5 group">
+                <img src="logo.png" alt="Vive Ticket" class="h-8 w-auto object-contain transition-transform group-hover:scale-105" onerror="this.style.display='none'">
+                <span class="text-xl md:text-2xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">
+                    VIVE TICKET
+                </span>
+            </a>
+
+            <!-- BARRA DE BÚSQUEDA -->
+            <div class="hidden md:flex bg-zinc-900/90 border border-zinc-800 focus-within:border-emerald-500 rounded-full px-4 py-2 w-80 items-center transition">
+                <svg class="w-4 h-4 text-zinc-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <input type="text" id="input-buscar-global" placeholder="Buscar eventos, talleres..." class="bg-transparent border-none outline-none text-sm w-full text-gray-200 placeholder-zinc-500">
             </div>
         </div>
         
-        <div class="flex items-center gap-4 text-sm font-semibold">
-            <a href="#" class="hover:text-amber-500 transition hidden sm:inline">Arriendo de espacios</a>
+        <div class="flex items-center gap-5 text-sm font-semibold">
+            <a href="#" class="text-zinc-300 hover:text-emerald-400 transition hidden sm:inline">Arriendo de espacios</a>
             
-            <!-- CONTENEDOR DINÁMICO DE BOTÓN DE SESIÓN -->
+            <!-- CONTENEDOR DINÁMICO DE BOTÓN DE SESIÓN (ej. Portal de organizadores) -->
             <div id="contenedor-boton-sesion">
                 <!-- Se dibuja dinámicamente desde app.js -->
             </div>
@@ -36,19 +63,19 @@
     </nav>
 
     <!-- CARRUSEL DESTACADO -->
-    <header class="relative w-full h-[500px] bg-zinc-800 overflow-hidden group">
+    <header class="relative w-full h-[500px] bg-zinc-900 overflow-hidden group">
         <div id="carousel-inner" class="relative w-full h-full">
             <div class="absolute inset-0 w-full h-full flex items-center justify-center text-white font-bold">
                 Cargando eventos destacados...
             </div>
         </div>
 
-        <button id="prevBtn" class="absolute top-0 left-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-50 hover:opacity-100 transition-opacity">
-            <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light">❮</span>
+        <button id="prevBtn" class="absolute top-0 left-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-40 hover:opacity-100 transition-opacity">
+            <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light hover:text-emerald-400">❮</span>
         </button>
 
-        <button id="nextBtn" class="absolute top-0 right-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-50 hover:opacity-100 transition-opacity">
-            <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light">❯</span>
+        <button id="nextBtn" class="absolute top-0 right-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-40 hover:opacity-100 transition-opacity">
+            <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light hover:text-emerald-400">❯</span>
         </button>
     </header>
 
@@ -59,7 +86,9 @@
         <section>
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Salud mental</h2>
-                <span class="text-xs md:text-sm bg-red-500 text-white font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">Máx 40 cupos</span>
+                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    Máx 40 cupos
+                </span>
             </div>
             <div id="grid-Salud mental" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
@@ -68,7 +97,9 @@
         <section>
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Entretenimiento</h2>
-                <span class="text-xs md:text-sm bg-red-500 text-white font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">Máx 40 cupos</span>
+                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    Máx 40 cupos
+                </span>
             </div>
             <div id="grid-Entretenimiento" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
@@ -77,7 +108,9 @@
         <section>
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Educación</h2>
-                <span class="text-xs md:text-sm bg-red-500 text-white font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">Máx 40 cupos</span>
+                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    Máx 40 cupos
+                </span>
             </div>
             <div id="grid-Educación" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
@@ -86,7 +119,9 @@
         <section>
             <div class="flex items-center gap-3 mb-8">
                 <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Cultura</h2>
-                <span class="text-xs md:text-sm bg-red-500 text-white font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow">Máx 40 cupos</span>
+                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    Máx 40 cupos
+                </span>
             </div>
             <div id="grid-Cultura" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
@@ -94,20 +129,20 @@
     </main>
 
     <!-- MAPA -->
-    <section class="bg-zinc-900 text-white py-12 px-6">
+    <section class="bg-zinc-950 text-white py-16 px-6 border-t border-zinc-800">
         <div class="max-w-7xl mx-auto space-y-8">
-            <div class="text-center space-y-4">
-                <h2 class="text-3xl font-black text-white">Busca evento por fecha o comuna</h2>
-                <p class="text-gray-400 text-sm">Filtra la disponibilidad de los talleres en el mapa e interactúa con sus ubicaciones.</p>
+            <div class="text-center space-y-3">
+                <h2 class="text-3xl md:text-4xl font-black text-white tracking-tight">Busca evento por fecha o comuna</h2>
+                <p class="text-zinc-400 text-sm max-w-xl mx-auto">Filtra la disponibilidad de los talleres en el mapa e interactúa con sus ubicaciones.</p>
             </div>
 
             <!-- BARRA DE FILTROS -->
-            <div class="bg-zinc-800 p-4 rounded-2xl border border-zinc-700 flex flex-col lg:flex-row gap-4 items-center justify-between shadow-xl">
+            <div class="bg-zinc-900/90 p-4 rounded-2xl border border-zinc-800 flex flex-col lg:flex-row gap-4 items-center justify-between shadow-2xl backdrop-blur-sm">
                 <!-- Filtro Comuna -->
-                <div class="w-full lg:w-5/12 flex items-center gap-3 bg-zinc-900 px-4 py-3 rounded-xl border border-zinc-700">
+                <div class="w-full lg:w-5/12 flex items-center gap-3 bg-zinc-950 px-4 py-3 rounded-xl border border-zinc-800 focus-within:border-emerald-500/50 transition">
                     <span class="text-lg">📍</span>
                     <div class="w-full">
-                        <label class="block text-[10px] font-bold uppercase text-amber-500 tracking-wider">Seleccionar Comuna</label>
+                        <label class="block text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Seleccionar Comuna</label>
                         <select id="filtro-comuna" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer">
                             <option value="todas" class="bg-zinc-900 text-white">Todas las comunas</option>
                             <option value="providencia" class="bg-zinc-900 text-white">Providencia</option>
@@ -121,26 +156,26 @@
                 </div>
 
                 <!-- Filtro Fecha -->
-                <div class="w-full lg:w-4/12 flex items-center gap-3 bg-zinc-900 px-4 py-3 rounded-xl border border-zinc-700">
+                <div class="w-full lg:w-4/12 flex items-center gap-3 bg-zinc-950 px-4 py-3 rounded-xl border border-zinc-800 focus-within:border-emerald-500/50 transition">
                     <span class="text-lg">📅</span>
                     <div class="w-full">
-                        <label class="block text-[10px] font-bold uppercase text-amber-500 tracking-wider">Buscar por Fecha</label>
-                        <input type="date" id="filtro-fecha" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer">
+                        <label class="block text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Buscar por Fecha</label>
+                        <input type="date" id="filtro-fecha" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer [color-scheme:dark]">
                     </div>
                 </div>
 
                 <!-- Grupo de Botones: Buscar y Limpiar -->
-                <div class="w-full lg:w-auto flex flex-row gap-2 items-center justify-end">
-                    <button onclick="aplicarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black px-6 py-3.5 rounded-xl transition text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer shadow-md flex items-center justify-center gap-1.5">
+                <div class="w-full lg:w-auto flex flex-row gap-2.5 items-center justify-end">
+                    <button onclick="aplicarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-zinc-950 font-black px-6 py-3.5 rounded-xl transition-all duration-200 text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2">
                         🔍 Buscar
                     </button>
-                    <button onclick="limpiarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-zinc-700 hover:bg-zinc-600 text-white font-bold px-5 py-3.5 rounded-xl transition text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer border border-zinc-600 flex items-center justify-center gap-1.5">
+                    <button onclick="limpiarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold px-5 py-3.5 rounded-xl transition text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer border border-zinc-700 flex items-center justify-center gap-2">
                         🔄 Limpiar
                     </button>
                 </div>
             </div>
 
-            <div id="mapa" class="w-full h-[550px] rounded-2xl overflow-hidden border-4 border-zinc-800 shadow-2xl"></div>
+            <div id="mapa" class="w-full h-[550px] rounded-2xl overflow-hidden border border-zinc-800 shadow-2xl"></div>
         </div>
     </section>
 

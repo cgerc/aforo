@@ -32,27 +32,28 @@
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
 
-    <!-- NAVBAR DINÁMICA -->
-    <nav class="bg-white text-zinc-900 px-6 md:px-10 py-3.5 flex justify-between items-center sticky top-0 z-[1000] border-b border-gray-100 shadow-sm">
+<nav class="bg-white text-zinc-900 px-6 md:px-10 py-3.5 flex justify-between items-center sticky top-0 z-[1000] border-b border-gray-100 shadow-sm w-full">
+        <!-- LADO IZQUIERDO: LOGO + BUSCADOR -->
         <div class="flex items-center gap-6 lg:gap-10">
-            <!-- LOGO: Isotipo + Tipografía espaciada -->
-            <a href="/" class="flex items-center gap-3 shrink-0 group">
+            <a href="/" class="flex-cold shrink-0 group">
                 <img 
-                    src="vive ticket logo.PNG" 
-                    alt="Vive Ticket" 
-                    class="h-9 md:h-10 w-auto object-contain transition-transform group-hover:scale-105"
-                    onerror="this.style.display='none'"
-                >
-            
+                src="logo.PNG" 
+                alt="Vive Ticket" 
+                class="h-14 md:h-16 w-auto object-contain transition-transform duration-200 group-hover:scale-105"
+             >
             </a>
-        
-        <div class="flex items-center gap-5 text-sm font-semibold">
-            <a href="#" class="text-zinc-800 hover:text-emerald-700 transition hidden sm:inline">Arriendo de espacios</a>
+
+            <!-- BUSCADOR -->
             
-            <!-- CONTENEDOR DINÁMICO DE BOTÓN DE SESIÓN (ej. Portal de organizadores) -->
-            <div id="contenedor-boton-sesion">
-                <!-- Se dibuja dinámicamente desde app.js -->
-            </div>
+        </div>
+        
+        <!-- LADO DERECHO: TEXTO TURQUESA Y BOTÓN/SESIÓN -->
+        <div class="flex items-center gap-6 text-sm font-semibold ml-auto">
+            <a href="#" class="text-teal-600 hover:text-teal-700 transition hidden sm:inline tracking-wide font-bold">
+                Arriendo de espacios
+            </a>
+            
+            <div id="contenedor-boton-sesion" class="flex items-center"></div>
         </div>
     </nav>
 

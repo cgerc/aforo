@@ -1,6 +1,6 @@
 ﻿// routes/auth.js
 import express from 'express';
-//import { Resend } from 'resend';
+import { Resend } from 'resend';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, sanitizeText } from '../db.js';
@@ -9,7 +9,7 @@ const router = express.Router();
 const jwtSecret = process.env.JWT_SECRET || 'supersecretlocal';
 const verificationTTL = Number(process.env.VERIFICATION_TTL_MS) || 15 * 60 * 1000;
 
-//const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function sendVerificationEmail(to, code) {
   if (!process.env.RESEND_API_KEY) {
@@ -145,6 +145,36 @@ router.post('/verify-email', async (req, res) => {
   } catch (error) {
     console.error('Error en /api/auth/verify-email:', error);
     return res.status(500).json({ error: error.message || 'No se pudo validar el correo.' });
+  }
+});
+
+router.post('/resend-code', async (req, res) => {
+  try {
+    const email = sanitizeText(req.body.email).toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({ error: 'El correo es requerido.' });
+    }
+
+    const pending = await pool.query('SELECT * FROM registros_pendientes WHERE email = $1', [email]);
+    if (pending.rowCount === 0) {
+      return res.status(404).json({ error: 'No existe un registro pendiente para este correo.' });
+    }
+
+    const codigo = generateVerificationCode();
+    const expira = Date.now() + verificationTTL;
+
+    await pool.query(
+      'UPDATE registros_pendientes SET codigo = $1, expira = $2 WHERE email = $3',
+      [codigo, expira, email]
+    );
+
+    await sendVerificationEmail(email, codigo);
+
+    return res.json({ message: 'Código de verificación reenviado.', modo: 'resend' });
+  } catch (error) {
+    console.error('Error en /api/auth/resend-code:', error);
+    return res.status(500).json({ error: error.message || 'No se pudo reenviar el código.' });
   }
 });
 

@@ -85,6 +85,25 @@
                     <input type="file" id="evento-archivo" accept="image/*" class="w-full p-2.5 border rounded-lg bg-gray-50 outline-none text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer">
                 </div>
 
+                <!-- Profesional del taller -->
+                <div class="md:col-span-2 bg-slate-50 p-5 rounded-xl border space-y-4">
+                    <div class="border-b pb-3">
+                        <h3 class="text-md font-bold text-gray-800">💼 Profesional que imparte el taller</h3>
+                        <p class="text-xs text-gray-500">Agrega el nombre y una foto de la persona a cargo del taller.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nombre del profesional:</label>
+                        <input type="text" id="evento-profesional-nombre" placeholder="Ej. Psicóloga María José Rojas" class="w-full p-3 border rounded-lg bg-white outline-none focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Foto del profesional:</label>
+                        <input type="file" id="evento-profesional-archivo" accept="image/*" class="w-full p-2.5 border rounded-lg bg-white outline-none text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer">
+                        <div id="vista-previa-profesional" class="mt-3 hidden">
+                            <img id="img-previa-profesional" src="" alt="Vista previa del profesional" class="w-20 h-20 object-cover rounded-full border-2 border-amber-300 shadow">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Fecha y Hora -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Fecha y Hora de la función:</label>
@@ -153,6 +172,7 @@
                         <tr class="text-gray-400 border-b text-xs uppercase font-bold">
                             <th class="pb-3">Flyer</th>
                             <th class="pb-3">Evento</th>
+                            <th class="pb-3">Profesional</th>
                             <th class="pb-3">Categoría</th>
                             <th class="pb-3">Dirección</th>
                             <th class="pb-3 text-center">Validador QR</th>
@@ -359,7 +379,7 @@
 
         async function cargarMisEventos() {
             try {
-                const res = await fetch('/api/eventos', {
+                const res = await fetch('/api/eventos/mios', {
                     headers: { ...encabezadosSesion() }
                 });
                 
@@ -375,12 +395,14 @@
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(listaEventosLocales) || listaEventosLocales.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-gray-500">No tienes eventos publicados.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-gray-500">No tienes eventos publicados.</td></tr>`;
                     return;
                 }
 
                 listaEventosLocales.forEach(ev => {
                     const flyerImg = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=100';
+                    const profImg = ev.profesional_imagen || null;
+                    const profNombre = ev.profesional_nombre || 'Sin profesional asignado';
                     const tokenOId = ev.validador_token || ev.id;
                     const parametro = ev.validador_token ? `token=${ev.validador_token}` : `taller_id=${ev.id}`;
                     const urlValidador = `${window.location.origin}/validador.html?${parametro}`;
@@ -393,6 +415,14 @@
                             <td class="py-3 font-semibold text-gray-900">
                                 ${ev.titulo}
                                 <span class="block text-xs text-gray-500 font-normal line-clamp-1">${ev.descripcion || 'Sin descripción'}</span>
+                            </td>
+                            <td class="py-3">
+                                <div class="flex items-center gap-2">
+                                    ${profImg
+                                        ? `<img src="${profImg}" class="w-9 h-9 object-cover rounded-full border border-amber-300" alt="${profNombre}">`
+                                        : `<div class="w-9 h-9 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center text-xs font-bold text-amber-800">${(profNombre || '?').charAt(0).toUpperCase()}</div>`}
+                                    <span class="text-xs text-gray-700 font-medium line-clamp-1">${profNombre}</span>
+                                </div>
                             </td>
                             <td class="py-3"><span class="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-bold">${ev.categoria}</span></td>
                             <td class="py-3 text-xs text-gray-500">${ev.direccion || ''} (${ev.comuna || ''})</td>
@@ -473,6 +503,18 @@
             document.getElementById('evento-comuna').value = ev.comuna || 'providencia';
             document.getElementById('evento-direccion').value = ev.direccion || '';
 
+            document.getElementById('evento-profesional-nombre').value = ev.profesional_nombre || '';
+
+            const vistaPrevia = document.getElementById('vista-previa-profesional');
+            const imgPrevia = document.getElementById('img-previa-profesional');
+            if (ev.profesional_imagen) {
+                imgPrevia.src = ev.profesional_imagen;
+                vistaPrevia.classList.remove('hidden');
+            } else {
+                imgPrevia.src = '';
+                vistaPrevia.classList.add('hidden');
+            }
+
             const contenedor = document.getElementById('contenedor-filas-entradas');
             contenedor.innerHTML = '';
             if (ev.categorias && ev.categorias.length > 0) {
@@ -496,7 +538,21 @@
             document.getElementById('btn-cancelar-edicion').classList.add('hidden');
             document.getElementById('contenedor-filas-entradas').innerHTML = '';
             agregarFilaEntrada("General", "15000", 40);
+
+            const vistaPrevia = document.getElementById('vista-previa-profesional');
+            if (vistaPrevia) {
+                vistaPrevia.classList.add('hidden');
+                document.getElementById('img-previa-profesional').src = '';
+            }
         }
+
+        document.getElementById('evento-profesional-archivo').addEventListener('change', async (e) => {
+            const archivo = e.target.files[0];
+            if (!archivo) return;
+            const base64 = await convertirArchivoABase64(archivo);
+            document.getElementById('img-previa-profesional').src = base64;
+            document.getElementById('vista-previa-profesional').classList.remove('hidden');
+        });
 
         document.getElementById('form-evento').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -514,6 +570,13 @@
 
                 if (archivoInput.files && archivoInput.files[0]) {
                     imagenBase64 = await convertirArchivoABase64(archivoInput.files[0]);
+                }
+
+                let profesionalImagenBase64 = null;
+                const archivoProfesional = document.getElementById('evento-profesional-archivo');
+
+                if (archivoProfesional.files && archivoProfesional.files[0]) {
+                    profesionalImagenBase64 = await convertirArchivoABase64(archivoProfesional.files[0]);
                 }
 
                 const direccionTexto = document.getElementById('evento-direccion').value;
@@ -549,10 +612,19 @@
                     lat: coords.lat,
                     lng: coords.lng,
                     categorias: categoriasEntradas,
-                    ticketsMax: cuposTotales
+                    ticketsMax: cuposTotales,
+                    profesionalNombre: document.getElementById('evento-profesional-nombre').value,
+                    profesionalImagen: null
                 };
 
                 if (imagenBase64) payload.imagen = imagenBase64;
+                if (esEdicion && !imagenBase64) delete payload.imagen;
+                if (profesionalImagenBase64) {
+                    payload.profesionalImagen = profesionalImagenBase64;
+                } else if (esEdicion) {
+                    const evActual = listaEventosLocales.find(e => String(e.id) === String(eventoId));
+                    payload.profesionalImagen = evActual ? (evActual.profesional_imagen || null) : null;
+                }
 
                 const url = esEdicion ? `/api/eventos/${eventoId}` : '/api/eventos';
                 const metodo = esEdicion ? 'PUT' : 'POST';

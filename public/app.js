@@ -214,17 +214,21 @@ function renderizarMarcadoresMapa(lista = eventosData) {
 
             const popupHTML = `
 
-                <div class="text-zinc-900 font-sans p-1 min-w-[180px]">
+                <div class="text-[#1E293B] font-sans p-1 min-w-[180px]">
 
                     <strong class="text-sm block font-bold mb-1">${ev.titulo}</strong>
 
-                    <p class="text-xs text-zinc-600 mb-1">${fechaTxt}</p>
+                    <p class="text-xs text-[#64748B] mb-1">${fechaTxt}</p>
 
-                    <p class="text-xs text-zinc-600 mb-2">📍 ${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()})</p>
+                    <p class="text-xs text-[#64748B] mb-2">📍 ${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()})</p>
 
-                    <p class="text-xs font-black text-zinc-900 mb-3">Desde $${precioMin.toLocaleString('es-CL')} CLP</p>
+                    <a href="https://www.google.com/maps?q=${ev.lat},${ev.lng}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[10px] font-bold text-[#26B488] hover:text-[#1FA078] underline mb-3 cursor-pointer">
+                        Abrir en Google Maps
+                    </a>
 
-                    <button onclick="irAlCheckout(${ev.id})" class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black text-xs py-2 px-3 rounded-lg cursor-pointer uppercase tracking-wider transition shadow">
+                    <p class="text-xs font-black text-[#1E293B] mb-3">Desde $${precioMin.toLocaleString('es-CL')} CLP</p>
+
+                    <button onclick="irAlCheckout(${ev.id})" class="w-full bg-[#26B488] hover:bg-[#1FA078] text-white font-bold text-xs py-2 px-3 rounded-full cursor-pointer uppercase tracking-wider transition shadow active:scale-95">
 
                         Comprar entradas
 
@@ -262,11 +266,11 @@ function renderizarMarcadoresMapa(lista = eventosData) {
 
 // 3. RENDERIZAR CARRUSEL COMPLETO
 
-function renderizarCarruselSuperior() {
+function renderizarCarruselSuperior(lista = eventosData) {
 
     const container = document.getElementById('carousel-inner');
 
-    if (!container || eventosData.length === 0) return;
+    if (!container) return;
 
 
 
@@ -274,7 +278,7 @@ function renderizarCarruselSuperior() {
 
    
 
-    eventosData.forEach((ev, idx) => {
+    lista.forEach((ev, idx) => {
 
         const flyer = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=1200';
 
@@ -284,10 +288,9 @@ function renderizarCarruselSuperior() {
 
        
 
-        slide.className = `carousel-item absolute inset-0 w-full h-full transition-opacity duration-700 ease-in-out ${idx === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0'} flex items-center justify-start px-12 md:px-24 bg-cover bg-center bg-no-repeat`;
+        slide.className = `carousel-item absolute inset-0 w-full h-full transition-opacity duration-700 ease-in-out ${idx === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0'} overflow-hidden`;
 
-        slide.style.backgroundImage = `linear-gradient(to right, rgba(0,0,0,0.85), rgba(0,0,0,0.3)), url('${flyer}')`;
-
+        slide.style.backgroundImage = '';
 
 
         const precioMin = ev.categorias && ev.categorias.length > 0 ? ev.categorias[0].precio : 0;
@@ -296,24 +299,30 @@ function renderizarCarruselSuperior() {
 
         slide.innerHTML = `
 
-            <div class="max-w-2xl text-white space-y-3">
+            <div class="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent z-10"></div>
 
-                <span class="bg-amber-500 text-zinc-950 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wider">${ev.categoria || 'Evento'}</span>
+            <img src="${flyer}" class="absolute inset-0 w-full h-full object-cover" alt="${ev.titulo}">
 
-                <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight">${ev.titulo}</h1>
+            <div class="relative z-20 px-8 md:px-16 max-w-2xl text-white carousel-content">
 
-                <p class="text-amber-400 font-bold text-sm flex items-center gap-1">${fechaFormateada}</p>
+                <span class="inline-block bg-[#A0E1C9] text-[#065F46] text-sm font-bold uppercase tracking-wider px-7 py-3 rounded-full mb-3">${ev.categoria || 'Evento'}</span>
 
-                <p class="text-sm text-gray-300 line-clamp-2">${ev.descripcion || ''}</p>
+                <h1 class="text-3xl md:text-4xl font-extrabold text-white leading-tight mb-3">${ev.titulo}</h1>
 
-                <p class="text-md text-gray-200">📍 ${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()}) — Desde $${precioMin.toLocaleString('es-CL')} CLP</p>
+                <div class="flex items-center gap-2 mb-2">
+                    <svg class="w-4 h-4 text-slate-200 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span class="text-sm font-medium text-slate-100">${fechaFormateada.replace('📅 ', '').replace('⏰ ', '')}</span>
+                </div>
 
-               
+                <div class="flex items-center gap-2 mb-4">
+                    <svg class="w-4 h-4 text-slate-200 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
+                    <span class="text-sm font-medium text-slate-100">${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()}) — Desde $${precioMin.toLocaleString('es-CL')} CLP</span>
+                </div>
 
-                <button onclick="irAlCheckout(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-lg text-lg transition shadow-lg mt-2 cursor-pointer">
+                <p class="text-sm text-slate-200 line-clamp-2 mb-6">${ev.descripcion || ''}</p>
 
-                    Comprar entradas
-
+                <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="rounded-full bg-[#26B488] hover:bg-[#1FA078] text-white font-bold px-7 py-3 text-sm uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer">
+                    Próximamente — Recibe mayor información aquí
                 </button>
 
             </div>
@@ -322,6 +331,15 @@ function renderizarCarruselSuperior() {
 
         container.appendChild(slide);
 
+    });
+
+    // Margen superior proporcional al total de texto: centra el bloque dentro de la imagen
+    container.querySelectorAll('.carousel-content').forEach(bloque => {
+        const slide = bloque.closest('.carousel-item');
+        if (!slide) return;
+        const altoImagen = slide.offsetHeight;
+        const altoBloque = bloque.offsetHeight;
+        bloque.style.marginTop = Math.max(24, Math.floor((altoImagen - altoBloque) / 2)) + 'px';
     });
 
 
@@ -420,11 +438,11 @@ function configurarControlesYAutoplayCarrusel() {
 
 // 5. RENDERIZAR TARJETAS DE CATEGORÍA
 
-function renderizarGrillasPorCategoria() {
+function renderizarGrillasPorCategoria(lista = eventosData) {
 
     const categorias = ["Salud mental", "Entretenimiento", "Educación", "Cultura"];
 
-
+   
 
     categorias.forEach(cat => {
 
@@ -432,11 +450,11 @@ function renderizarGrillasPorCategoria() {
 
         if (!grid) return;
 
-
+   
 
         grid.innerHTML = '';
 
-        const filtrados = eventosData.filter(e => e.categoria === cat);
+        const filtrados = lista.filter(e => e.categoria === cat);
 
 
 
@@ -468,15 +486,15 @@ function renderizarGrillasPorCategoria() {
 
             card.innerHTML = `
 
-                <div class="w-full bg-zinc-100 rounded-xl h-64 flex items-center justify-center text-gray-400 font-bold mb-3 overflow-hidden relative">
+                <div class="w-full bg-zinc-100 rounded-2xl h-64 flex items-center justify-center text-gray-400 font-bold mb-3 overflow-hidden relative">
 
-                    <img src="${flyerImg}" class="w-full h-full object-cover rounded-xl" alt="${ev.titulo}">
+                    <img src="${flyerImg}" class="w-full h-full object-cover rounded-2xl" alt="${ev.titulo}">
 
                 </div>
 
                
 
-                <div class="bg-amber-50 text-amber-900 border border-amber-200/60 rounded-lg px-3 py-1.5 text-xs font-bold mb-4 w-full">
+                <div class="bg-[#A0E1C9]/30 text-[#065F46] rounded-full px-3 py-1.5 text-xs font-bold mb-4 w-fit">
 
                     ${fechaFormateada}
 
@@ -484,17 +502,18 @@ function renderizarGrillasPorCategoria() {
 
                
 
-                <h3 class="text-2xl font-black text-zinc-900 mb-1">${ev.titulo}</h3>
+                <h3 class="text-xl font-black text-slate-900 mb-1">${ev.titulo}</h3>
 
-                <p class="text-xs text-gray-500 mb-3 line-clamp-2">${ev.descripcion || 'Sin descripción'}</p>
+                <p class="text-slate-900 font-black text-lg mb-6">$${precioMin.toLocaleString('es-CL')} CLP</p>
 
-                <p class="text-gray-900 font-black text-lg mb-6">$${precioMin.toLocaleString('es-CL')} CLP</p>
-
-                <button onclick="irAlCheckout(${ev.id})" class="w-full bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm transition-colors mt-auto shadow-sm cursor-pointer">
-
-                    Comprar Entradas
-
-                </button>
+                <div class="w-full space-y-2 mt-auto">
+                    <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="w-full bg-[#A0E1C9]/20 hover:bg-[#A0E1C9]/40 text-[#1B5E4B] font-bold py-2.5 rounded-xl uppercase tracking-wider text-xs transition-colors border border-[#A0E1C9] cursor-pointer">
+                        Próximamente — Recibe mayor información
+                    </button>
+                    <button onclick="irAlCheckout(${ev.id})" class="w-full bg-[#26B488] hover:bg-[#1FA078] text-white font-bold py-3 rounded-xl uppercase tracking-wider text-sm transition-colors shadow-md active:scale-95 cursor-pointer">
+                        Comprar Entradas
+                    </button>
+                </div>
 
             `;
 
@@ -508,7 +527,43 @@ function renderizarGrillasPorCategoria() {
 
 
 
-// 6. FUNCIONES DE FILTRADO (BUSCAR Y LIMPIAR)
+// 6. BUSCADOR GLOBAL DEL NAVBAR
+
+function buscarEventosGlobally() {
+    const input = document.getElementById('buscador-global');
+    const termino = normalizarTexto(input ? input.value : '');
+
+    if (!termino) {
+        renderizarCarruselSuperior();
+        renderizarGrillasPorCategoria();
+        renderizarMarcadoresMapa(eventosData);
+        if (map) map.setView([-33.435, -70.620], 12);
+        return;
+    }
+
+    const palabrasTermino = termino.split(/\s+/);
+
+    const eventosFiltrados = eventosData.filter(ev => {
+        const textoEvento = normalizarTexto([
+            ev.titulo,
+            ev.descripcion,
+            ev.categoria,
+            ev.comuna,
+            ev.direccion
+        ].join(' '));
+
+        return palabrasTermino.every(palabra => textoEvento.includes(palabra));
+    });
+
+    renderizarCarruselSuperior(eventosFiltrados);
+    renderizarGrillasPorCategoria(eventosFiltrados);
+    renderizarMarcadoresMapa(eventosFiltrados);
+
+    const seccionCategorias = document.querySelector('#categorias-search');
+    if (seccionCategorias) seccionCategorias.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// 7. FUNCIONES DE FILTRADO (BUSCAR Y LIMPIAR)
 
 function aplicarFiltrosBusqueda() {
 
@@ -642,11 +697,102 @@ async function cargarDatosInicio() {
 
 
 
+// 8. MODAL DE INSCRIPCIÓN
+
+function abrirModalInscripcion(eventoId, eventoNombre) {
+    const modal = document.getElementById('modal-inscripcion');
+    const titulo = document.getElementById('modal-inscripcion-titulo');
+    const inputId = document.getElementById('insc-evento-id');
+    const errorDiv = document.getElementById('insc-error');
+    const exitoDiv = document.getElementById('insc-exito');
+    const form = document.getElementById('form-inscripcion');
+
+    if (!modal) return;
+
+    titulo.textContent = eventoNombre;
+    inputId.value = eventoId || '';
+    errorDiv.classList.add('hidden');
+    exitoDiv.classList.add('hidden');
+    form.reset();
+    inputId.value = eventoId || '';
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function cerrarModalInscripcion() {
+    const modal = document.getElementById('modal-inscripcion');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-
     renderizarSesion();
-
     cargarDatosInicio();
 
+    const buscadorGlobal = document.getElementById('buscador-global');
+    if (buscadorGlobal) {
+        buscadorGlobal.addEventListener('input', buscarEventosGlobally);
+    }
+
+    const parametroBusqueda = new URLSearchParams(window.location.search).get('q');
+    if (parametroBusqueda && buscadorGlobal) {
+        buscadorGlobal.value = parametroBusqueda;
+        buscarEventosGlobally();
+    }
+
+    const form = document.getElementById('form-inscripcion');
+    if (form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const btn = document.getElementById('btn-inscribir');
+            const errorDiv = document.getElementById('insc-error');
+            const exitoDiv = document.getElementById('insc-exito');
+
+            const nombre = document.getElementById('insc-nombre').value.trim();
+            const celular = document.getElementById('insc-celular').value.trim();
+            const correo = document.getElementById('insc-correo').value.trim();
+            const eventoId = document.getElementById('insc-evento-id').value;
+
+            errorDiv.classList.add('hidden');
+            exitoDiv.classList.add('hidden');
+
+            if (!nombre || !celular || !correo) {
+                errorDiv.innerText = 'Por favor completa todos los campos.';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = 'Enviando...';
+
+            try {
+                const res = await fetch('/api/inscribir', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nombre, celular, correo, eventoId: eventoId ? Number(eventoId) : null })
+                });
+
+                const data = await res.json().catch(() => ({}));
+
+                if (res.ok) {
+                    exitoDiv.innerText = '¡Inscripción enviada correctamente! Te contactaremos pronto.';
+                    exitoDiv.classList.remove('hidden');
+                    form.reset();
+                    setTimeout(() => cerrarModalInscripcion(), 3000);
+                } else {
+                    errorDiv.innerText = data.error || 'No se pudo procesar la inscripción.';
+                    errorDiv.classList.remove('hidden');
+                }
+            } catch (err) {
+                errorDiv.innerText = 'Error de conexión con el servidor.';
+                errorDiv.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Enviar inscripción';
+            }
+        });
+    }
 }); 
 

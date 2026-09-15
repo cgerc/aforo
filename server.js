@@ -8,7 +8,11 @@ import { createClient } from '@supabase/supabase-js';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import jwt from 'jsonwebtoken';
 import QRCode from 'qrcode';
+import { Resend } from 'resend';
 import { initDb, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats } from './db.js';
+
+// Importar middleware de autenticación
+import { requireAuth } from './middleware/auth.js';
 
 // Importar rutas de autenticación
 import authRoutes from './routes/auth.js';
@@ -45,6 +49,8 @@ if (mpAccessToken) {
 }
 console.log('>>> [DEBUG] process.env.MERCADOPAGO_ACCESS_TOKEN:', process.env.MERCADOPAGO_ACCESS_TOKEN ? 'Existe' : 'No encontrado (undefined)');
 console.log('>>> [DEBUG] mpClient inicializado:', Boolean(mpClient));
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const sanitizeText = (value) => {
   if (typeof value !== 'string') return '';
@@ -92,6 +98,69 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// INSCRIPCIÓN A TALLER - Enviar correo a contacto@viveticket.cl
+app.post('/api/inscribir', async (req, res) => {
+  try {
+    const nombre = sanitizeText(req.body.nombre);
+    const celular = sanitizeText(req.body.celular);
+    const correo = sanitizeText(req.body.correo).toLowerCase();
+    const eventoId = req.body.eventoId || null;
+    const eventoNombre = sanitizeText(req.body.eventoNombre);
+
+    if (!nombre || !celular || !correo) {
+      return res.status(400).json({ error: 'Nombre, celular y correo son requeridos.' });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(correo)) {
+      return res.status(400).json({ error: 'El correo electrónico no es válido.' });
+    }
+
+    let tituloEvento = eventoNombre || 'Taller no especificado';
+    if (eventoId && !eventoNombre && supabase) {
+      try {
+        const { data: ev } = await supabase.from('eventos').select('titulo').eq('id', Number(eventoId)).single();
+        if (ev) tituloEvento = ev.titulo;
+      } catch (_) {}
+    }
+
+    await resend.emails.send({
+      from: 'Vive Ticket <contacto@viveticket.cl>',
+      to: 'contacto@viveticket.cl',
+      subject: `Nueva inscripción: ${tituloEvento}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; background: #f9fafb; border-radius: 12px;">
+          <h2 style="color: #10b981;">Nueva inscripción a un taller</h2>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+            <tr>
+              <td style="padding: 8px; font-weight: bold; color: #374151;">Taller:</td>
+              <td style="padding: 8px; color: #111827;">${tituloEvento}</td>
+            </tr>
+            <tr style="background: #f3f4f6;">
+              <td style="padding: 8px; font-weight: bold; color: #374151;">Nombre:</td>
+              <td style="padding: 8px; color: #111827;">${nombre}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; font-weight: bold; color: #374151;">Celular:</td>
+              <td style="padding: 8px; color: #111827;">${celular}</td>
+            </tr>
+            <tr style="background: #f3f4f6;">
+              <td style="padding: 8px; font-weight: bold; color: #374151;">Correo:</td>
+              <td style="padding: 8px; color: #111827;">${correo}</td>
+            </tr>
+          </table>
+          <p style="margin-top: 20px; font-size: 12px; color: #9ca3af;">Mensaje enviado desde Vive Ticket — ${new Date().toLocaleString('es-CL')}</p>
+        </div>
+      `
+    });
+
+    return res.json({ message: 'Inscripción enviada correctamente.' });
+  } catch (error) {
+    console.error('Error en /api/inscribir:', error);
+    return res.status(500).json({ error: 'No se pudo procesar la inscripción.' });
+  }
+});
+
 // OBTENER TODOS LOS EVENTOS
 app.get('/api/eventos', async (req, res) => {
   try {
@@ -121,6 +190,8 @@ app.get('/api/eventos', async (req, res) => {
       direccion: evento.direccion || '',
       lat: evento.lat ?? null,
       lng: evento.lng ?? null,
+      profesional_nombre: evento.profesional_nombre || '',
+      profesional_imagen: evento.profesional_imagen || null,
       validador_token: evento.validador_token || null
     }));
 
@@ -131,8 +202,50 @@ app.get('/api/eventos', async (req, res) => {
   }
 });
 
+// OBTENER EVENTOS DEL USUARIO AUTENTICADO
+app.get('/api/eventos/mios', requireAuth, async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase no está configurado.' });
+    }
+
+    const { data, error } = await supabase
+      .from('eventos')
+      .select('*')
+      .eq('usuario_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error al consultar eventos del usuario:', error.message || error);
+      return res.status(500).json({ error: 'No se pudieron cargar tus eventos', details: error.message });
+    }
+
+    const eventos = (data || []).map((evento) => ({
+      ...evento,
+      categorias: Array.isArray(evento.categorias) ? evento.categorias : [],
+      fecha: evento.fecha || null,
+      imagen: evento.imagen || null,
+      titulo: evento.titulo || 'Sin título',
+      descripcion: evento.descripcion || '',
+      categoria: evento.categoria || 'General',
+      comuna: evento.comuna || '',
+      direccion: evento.direccion || '',
+      lat: evento.lat ?? null,
+      lng: evento.lng ?? null,
+      profesional_nombre: evento.profesional_nombre || '',
+      profesional_imagen: evento.profesional_imagen || null,
+      validador_token: evento.validador_token || null
+    }));
+
+    return res.json(eventos);
+  } catch (error) {
+    console.error('Error interno al leer eventos del usuario:', error.message || error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 // CREAR UN NUEVO EVENTO
-app.post('/api/eventos', async (req, res) => {
+app.post('/api/eventos', requireAuth, async (req, res) => {
   try {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase no está configurado.' });
@@ -149,10 +262,13 @@ app.post('/api/eventos', async (req, res) => {
       lng,
       categorias,
       ticketsMax,
-      imagen
+      imagen,
+      profesionalNombre,
+      profesionalImagen
     } = req.body;
 
     const newEvent = {
+      usuario_id: req.user.id,
       titulo: sanitizeText(titulo),
       descripcion: sanitizeText(descripcion),
       fecha: fecha || null,
@@ -164,6 +280,8 @@ app.post('/api/eventos', async (req, res) => {
       categorias: Array.isArray(categorias) ? categorias : [],
       tickets_max: Number(ticketsMax) || 40,
       imagen: imagen || null,
+      profesional_nombre: sanitizeText(profesionalNombre) || null,
+      profesional_imagen: profesionalImagen || null,
       validador_token: crypto.randomUUID()
     };
 
@@ -185,13 +303,29 @@ app.post('/api/eventos', async (req, res) => {
 });
 
 // EDITAR UN EVENTO EXISTENTE
-app.put('/api/eventos/:id', async (req, res) => {
+app.put('/api/eventos/:id', requireAuth, async (req, res) => {
   try {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase no está configurado.' });
     }
 
     const { id } = req.params;
+
+    // Verificar que el evento pertenece al usuario autenticado
+    const { data: existing, error: checkErr } = await supabase
+      .from('eventos')
+      .select('id, usuario_id')
+      .eq('id', Number(id))
+      .single();
+
+    if (checkErr || !existing) {
+      return res.status(404).json({ error: 'Evento no encontrado.' });
+    }
+
+    if (existing.usuario_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes permiso para editar este evento.' });
+    }
+
     const {
       titulo,
       descripcion,
@@ -203,7 +337,9 @@ app.put('/api/eventos/:id', async (req, res) => {
       lng,
       categorias,
       ticketsMax,
-      imagen
+      imagen,
+      profesionalNombre,
+      profesionalImagen
     } = req.body;
 
     const updateData = {
@@ -216,7 +352,9 @@ app.put('/api/eventos/:id', async (req, res) => {
       lat: Number(lat) || null,
       lng: Number(lng) || null,
       categorias: Array.isArray(categorias) ? categorias : [],
-      tickets_max: Number(ticketsMax) || 40
+      tickets_max: Number(ticketsMax) || 40,
+      profesional_nombre: sanitizeText(profesionalNombre) ?? null,
+      profesional_imagen: profesionalImagen ?? null
     };
 
     if (imagen) {
@@ -246,10 +384,27 @@ app.put('/api/eventos/:id', async (req, res) => {
 });
 
 // ELIMINAR UN EVENTO EXISTENTE
-app.delete('/api/eventos/:id', async (req, res) => {
+app.delete('/api/eventos/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'ID de evento requerido.' });
+
+    // Verificar que el evento pertenece al usuario autenticado
+    if (supabase) {
+      const { data: existing, error: checkErr } = await supabase
+        .from('eventos')
+        .select('id, usuario_id')
+        .eq('id', Number(id))
+        .single();
+
+      if (checkErr || !existing) {
+        return res.status(404).json({ error: 'Evento no encontrado.' });
+      }
+
+      if (existing.usuario_id !== req.user.id) {
+        return res.status(403).json({ error: 'No tienes permiso para eliminar este evento.' });
+      }
+    }
 
     // 1. Eliminar en Supabase
     if (supabase) {
@@ -290,10 +445,33 @@ app.post('/api/create-preference', async (req, res) => {
   }
 
   const { titulo, precioUnitario, cantidad, comprador, user_id } = req.body || {};
-  const taller_id = req.body?.taller_id || req.body?.evento_id || req.body?.tallerId || req.body?.id || null;
+  const taller_id = Number(req.body?.taller_id || req.body?.evento_id || req.body?.tallerId || req.body?.id || NaN);
+  const tallerIdValido = Number.isInteger(taller_id) && taller_id > 0;
 
   if (!titulo || !Number.isFinite(Number(precioUnitario)) || Number(precioUnitario) <= 0 || !Number.isFinite(Number(cantidad)) || Number(cantidad) <= 0) {
     return res.status(400).json({ error: 'Datos de pago inválidos. Asegúrate de enviar título, precio unitario y cantidad.' });
+  }
+
+  if (!tallerIdValido) {
+    return res.status(400).json({ error: 'Falta el taller/evento vinculado a la compra (taller_id). No se puede generar una orden sin taller.' });
+  }
+
+  let eventoExiste = true;
+  if (supabase) {
+    const { error: errEvento } = await supabase.from('eventos').select('id').eq('id', taller_id).maybeSingle();
+    if (errEvento) console.warn('No se pudo verificar el evento en Supabase:', errEvento.message);
+    eventoExiste = !errEvento;
+  }
+  if (eventoExiste && pool) {
+    try {
+      const resEvento = await pool.query('SELECT id FROM eventos WHERE id = $1 LIMIT 1', [taller_id]);
+      eventoExiste = resEvento.rowCount > 0;
+    } catch (e) {
+      console.warn('No se pudo verificar el evento en DB local pool:', e.message);
+    }
+  }
+  if (!eventoExiste) {
+    return res.status(404).json({ error: 'El taller/evento vinculado no existe. Verifica el evento seleccionado.' });
   }
 
   const nombreComprador = sanitizeText(comprador?.nombre);
@@ -309,7 +487,7 @@ app.post('/api/create-preference', async (req, res) => {
     try {
       order = await createOrder({ 
         user_id: user_id ? Number(user_id) : null, 
-        taller_id: taller_id ? Number(taller_id) : null, 
+        taller_id: taller_id, 
         cantidad: Number(cantidad) || 1, 
         preference_id: null 
       });
@@ -322,7 +500,7 @@ app.post('/api/create-preference', async (req, res) => {
         .from('ordenes')
         .insert([{
           user_id: user_id ? Number(user_id) : null,
-          taller_id: taller_id ? Number(taller_id) : null,
+          taller_id: taller_id,
           cantidad: Number(cantidad) || 1,
           status: 'PENDIENTE'
         }])
@@ -384,13 +562,18 @@ app.post('/api/create-preference', async (req, res) => {
     }
 
     if (supabase) {
-      await supabase
+      const { error: errUpdate } = await supabase
         .from('ordenes')
         .update({ 
           preference_id: preferenceResult.id,
-          taller_id: taller_id ? Number(taller_id) : order.taller_id
+          taller_id: taller_id || order.taller_id
         })
-        .eq('id', order.id);
+        .eq('id', order.id)
+        .select('id, taller_id, status');
+
+      if (errUpdate) {
+        console.error('Error actualizando preferencia/taller en Supabase:', errUpdate.message);
+      }
     }
 
     return res.status(200).json({ preference_id: preferenceResult.id, init_point: preferenceResult.init_point, order_id: order.id });
@@ -402,9 +585,15 @@ app.post('/api/create-preference', async (req, res) => {
 
 // Función auxiliar para marcar la orden pagada y generar el QR sin expiración
 async function processOrderPayment(orderId, tallerId, cantidad) {
+  const tallerIdFinal = tallerId ? Number(tallerId) : null;
+
+  if (!tallerIdFinal) {
+    console.error(`⚠️ Orden #${orderId} pagada sin taller_id: su QR no podrá validarse por taller. Revisa el flujo de compra.`);
+  }
+
   const qrSecret = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr_secret_change_me';
   
-  const token = jwt.sign({ order_id: Number(orderId), taller_id: tallerId ? Number(tallerId) : null }, qrSecret);
+  const token = jwt.sign({ order_id: Number(orderId), taller_id: tallerIdFinal }, qrSecret);
 
   try {
     if (pool) await markOrderPaid(orderId, token);
@@ -413,9 +602,12 @@ async function processOrderPayment(orderId, tallerId, cantidad) {
   }
 
   if (supabase) {
+    const camposUpdate = { status: 'PAGADA', qr_token: token };
+    if (tallerIdFinal) camposUpdate.taller_id = tallerIdFinal;
+
     const { error } = await supabase
       .from('ordenes')
-      .update({ status: 'PAGADA', qr_token: token, taller_id: tallerId ? Number(tallerId) : null })
+      .update(camposUpdate)
       .eq('id', Number(orderId));
 
     if (error) {
@@ -424,7 +616,7 @@ async function processOrderPayment(orderId, tallerId, cantidad) {
   }
 
   try {
-    if (tallerId) await deductSeats(tallerId, Number(cantidad) || 1);
+    if (tallerIdFinal) await deductSeats(tallerIdFinal, Number(cantidad) || 1);
   } catch (err) {
     console.warn('Error descontando cupos:', err.message);
   }

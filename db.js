@@ -70,8 +70,22 @@ async function initDb() {
         tickets_vendidos INTEGER DEFAULT 0,
         tickets_max INTEGER DEFAULT 40,
         categorias JSONB DEFAULT '[]'::jsonb,
+        validador_token TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       );
+    `);
+
+    // Migración segura: agregar validador_token si falta (tablas ya existentes)
+    await client.query(`
+      ALTER TABLE eventos ADD COLUMN IF NOT EXISTS validador_token TEXT;
+    `);
+
+    // Migración segura: profesional que imparte el taller
+    await client.query(`
+      ALTER TABLE eventos ADD COLUMN IF NOT EXISTS profesional_nombre TEXT;
+    `);
+    await client.query(`
+      ALTER TABLE eventos ADD COLUMN IF NOT EXISTS profesional_imagen TEXT;
     `);
 
     await client.query(`

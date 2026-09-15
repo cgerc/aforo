@@ -27,6 +27,34 @@
             </a>
         </div>
 
+        <!-- RESUMEN DEL TALLER + PROFESIONAL -->
+        <section class="space-y-4">
+            <div class="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-6 flex flex-col md:flex-row gap-6">
+                <!-- Info del taller -->
+                <div class="flex-1 space-y-3">
+                    <span class="inline-block bg-amber-500/15 text-amber-700 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full">Resumen del taller</span>
+                    <h2 id="resumen-taller-titulo" class="text-2xl font-black text-gray-900 leading-tight">Cargando taller...</h2>
+                    <p id="resumen-taller-descripcion" class="text-sm text-gray-600">Cargando detalles del taller seleccionado...</p>
+                    <div id="resumen-taller-meta" class="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-gray-500"></div>
+                    <p id="resumen-taller-precio" class="text-xs font-black text-amber-700"></p>
+                </div>
+                <!-- Espacio del profesional que lo imparte -->
+                <div class="flex-none w-full md:w-56 bg-white border border-amber-200 rounded-2xl p-4 text-center shadow-sm self-start">
+                    <div id="resumen-profesional-avatar" class="w-20 h-20 rounded-full bg-amber-100 border-2 border-amber-300 mx-auto mb-2 overflow-hidden flex items-center justify-center text-2xl font-black text-amber-700"></div>
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400">Imparte el taller</p>
+                    <p id="resumen-profesional-nombre" class="text-sm font-bold text-gray-800 mt-0.5">—</p>
+                    <p id="resumen-profesional-cargo" class="text-[11px] text-gray-500 mt-0.5">Profesional</p>
+                </div>
+            </div>
+
+            <!-- Términos y condiciones -->
+            <div class="flex justify-center pt-2">
+                <a href="terminos-condiciones.html" target="_blank" rel="noopener noreferrer" class="inline-block text-center bg-zinc-900 hover:bg-zinc-800 text-white font-black px-8 py-3 rounded-full uppercase tracking-wider text-sm transition shadow-md cursor-pointer">
+                    Ver términos y condiciones
+                </a>
+            </div>
+        </section>
+
         <!-- RESUMEN DE LA COMPRA -->
         <section class="space-y-4">
             <h2 class="text-xl font-bold text-gray-800">Resumen del evento seleccionado</h2>
@@ -112,7 +140,7 @@
         // Si no se encuentra un evento, cargamos datos de respaldo para evitar la pantalla en blanco
         if (!eventoData) {
             eventoData = {
-                id: 1,
+                id: null,
                 titulo: "Taller de Manejo de la Ansiedad",
                 direccion: "Av. Santa Isabel 1240 (Providencia)",
                 descripcion: "Taller práctico sobre regulación emocional y técnicas de mindfulness.",
@@ -126,6 +154,52 @@
             : { nombre: 'General', precio: 15000 };
         
         precioUnitario = catPrincipal.precio || 15000;
+
+        // Renderizado dinámico del resumen del taller + profesional
+        (function () {
+            const fechaFormateada = (() => {
+                const fecha = eventoData.fecha;
+                if (!fecha) return 'Fecha a confirmar';
+                const partes = String(fecha).split('T');
+                if (partes.length === 2) {
+                    const [dia, mes, ano] = partes[0].split('-');
+                    return `${dia}/${mes}/${ano} • ${partes[1].substring(0, 5)} hrs`;
+                }
+                return fecha;
+            })();
+
+            const titulo = document.getElementById('resumen-taller-titulo');
+            const descripcion = document.getElementById('resumen-taller-descripcion');
+            const meta = document.getElementById('resumen-taller-meta');
+            const precio = document.getElementById('resumen-taller-precio');
+
+            if (titulo) titulo.textContent = eventoData.titulo || 'Taller';
+            if (descripcion) descripcion.textContent = eventoData.descripcion || 'Resumen del taller.';
+            if (meta) {
+                const localidad = `${eventoData.direccion || ''}${eventoData.comuna ? ' (' + eventoData.comuna.toUpperCase() + ')' : ''}`.trim();
+                const piezas = [];
+                if (fechaFormateada) piezas.push(`📅 ${fechaFormateada}`);
+                if (localidad) piezas.push(`📍 ${localidad}`);
+                if (eventoData.categoria) piezas.push(`🏷️ ${eventoData.categoria}`);
+                meta.innerHTML = piezas.map(p => `<span>${p}</span>`).join('');
+            }
+            if (precio) precio.textContent = `Desde $${precioUnitario.toLocaleString('es-CL')} CLP`;
+
+            const profNombre = eventoData.profesional_nombre || '';
+            const profImagen = eventoData.profesional_imagen || '';
+
+            const avatar = document.getElementById('resumen-profesional-avatar');
+            if (avatar) {
+                if (profImagen) {
+                    avatar.innerHTML = `<img src="${profImagen}" alt="${profNombre}" class="w-full h-full object-cover">`;
+                } else {
+                    avatar.textContent = (profNombre || '?').charAt(0).toUpperCase();
+                }
+            }
+
+            const nombreProf = document.getElementById('resumen-profesional-nombre');
+            if (nombreProf) nombreProf.textContent = profNombre || 'Por confirmar';
+        })();
 
         // Renderizado dinámico de la tabla de resumen
         body.innerHTML = `
@@ -204,6 +278,10 @@
             }
             if (email !== emailConfirm) {
                 return alert("Los correos electrónicos ingresados no coinciden.");
+            }
+
+            if (!eventoData || !Number.isInteger(Number(eventoData.id)) || Number(eventoData.id) <= 0) {
+                return alert("No se encontró un taller válido para comprar. Vuelve al inicio y selecciona un taller.");
             }
 
             const btnPagar = document.getElementById('btn-pagar');

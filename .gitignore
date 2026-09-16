@@ -14,4 +14,4 @@ node_modules/
 
 # Archivos del sistema operativo
 .DS_Store
-Thumbs.db
+Thumbs.db.opencode/

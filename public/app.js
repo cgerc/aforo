@@ -64,7 +64,7 @@ function renderizarSesion() {
 
 
 
-    contenedor.innerHTML = '<a href="login.html" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black px-4 py-2 rounded-lg transition">Portal de organizadores</a>';
+    contenedor.innerHTML = '<a href="login.html" class="text-slate-800 hover:text-black font-bold transition">Portal de organizadores</a>';
 
 }
 
@@ -276,7 +276,6 @@ function renderizarCarruselSuperior(lista = eventosData) {
 
     container.innerHTML = '';
 
-   
 
     lista.forEach((ev, idx) => {
 
@@ -651,7 +650,7 @@ async function cargarDatosInicio() {
 
     try {
 
-        const res = await fetch('/api/eventos', { headers: { Accept: 'application/json' } });
+        const res = await fetch('/api/eventos', { cache: 'no-store', headers: { Accept: 'application/json' } });
 
         const textoRespuesta = await res.text();
 

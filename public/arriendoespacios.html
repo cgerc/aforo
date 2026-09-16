@@ -12,154 +12,98 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['"Proxima Nova"', 'Inter', '-apple-system', 'Helvetica Neue', 'Helvetica', 'Roboto', 'Arial', 'sans-serif'],
-                    },
-                    colors: {
-                        brand: {
-                            bg: '#F8FAF8',
-                            primary: '#26B488',
-                            'primary-hover': '#1FA078',
-                            mint: '#A0E1C9',
-                            'mint-dark': '#1B5E4B',
-                            dark: '#1E293B',
-                            muted: '#64748B',
-                            bar: '#52585B',
-                            'bar-light': '#4B5563',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
 </head>
-<body class="bg-[#F8FAF8] text-[#1E293B] font-sans">
+<body class="bg-[#F1F6EF] text-[#1E293B] font-sans">
 
-    <!-- NAVBAR -->
-    <header class="w-full bg-[#F1F6EF] h-[72px] px-6 md:px-12 flex items-center justify-between border-b border-gray-100 sticky top-0 z-[1000]">
-        <!-- Logo + Buscador -->
-        <div class="flex items-center gap-6 lg:gap-10">
-            <a href="/" class="flex items-center shrink-0 group">
-                <img src="logo.jpg" alt="Vive Ticket" class="h-11 md:h-13 w-auto object-contain transition-transform duration-200 group-hover:scale-105">
-            </a>
-            <!-- Buscador píldora -->
-            <form action="/" method="get" class="relative hidden md:block w-full max-w-[340px]" role="search">
-                <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#94A3B8]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
-                </svg>
-                <input type="text" name="q" placeholder="Buscar eventos, talleres..." class="rounded-full bg-[#52585B] text-slate-200 placeholder-[#94A3B8] text-sm pl-11 pr-4 py-2.5 w-full focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
-            </form>
-        </div>
-        <!-- Derecha -->
-        <div class="flex flex-wrap items-center justify-end gap-2.5 text-sm ml-auto">
-            <a href="postula.html" class="inline-flex items-center justify-center bg-[#EBF7F2] border border-[#A9DFCE] text-[#135650] font-bold uppercase tracking-wider text-center rounded-2xl px-4 sm:px-5 py-2.5 text-[11px] sm:text-xs whitespace-nowrap shadow-[0_3px_8px_rgba(34,176,125,0.18)] hover:shadow-md hover:bg-[#e0f4ec] transition duration-200 cursor-pointer">
-                Postula tu taller
-            </a>
-            <a href="arriendoespacios.html" class="inline-flex items-center justify-center bg-[#22B07D] text-white font-black uppercase tracking-wider text-center rounded-2xl px-4 sm:px-5 py-2.5 text-[11px] sm:text-xs whitespace-nowrap shadow-[0_3px_8px_rgba(34,176,125,0.30)] hover:shadow-md hover:bg-[#1d9c6f] transition duration-200 cursor-pointer">
-                Arriendo de espacios
-            </a>
-            <div id="contenedor-boton-sesion" class="flex items-center"></div>
-        </div>
+    <!-- HEADER PROPIO (navbar completo solo en index.html) -->
+    <header class="w-full bg-[#F1F6EF] px-4 md:px-8 xl:px-12 py-2.5 md:py-3 flex items-center justify-between border-b border-gray-100 sticky top-0 z-50">
+        <a href="/" class="flex items-center shrink-0 group">
+            <img src="logo.jpg" alt="Vive Ticket" class="h-10 md:h-12 w-auto object-contain transition-transform duration-200 group-hover:scale-105">
+        </a>
+        <a href="/" class="inline-flex items-center justify-center gap-1.5 text-[#135650] font-bold uppercase tracking-wider rounded-2xl px-4 sm:px-5 py-2.5 text-[11px] sm:text-xs whitespace-nowrap hover:bg-[#e0f4ec] transition duration-200 cursor-pointer">
+            &larr; Volver al inicio
+        </a>
     </header>
 
-    <!-- ARRIENDO DE ESPACIOS -->
-    <main class="py-16 px-6">
-        <div class="max-w-2xl mx-auto">
-            <div class="bg-white rounded-3xl border border-[#A9DFCE] shadow-[0_10px_30px_rgba(34,176,125,0.10)] p-6 md:p-10">
-                <div class="text-center mb-8">
-                    <h1 class="text-3xl font-black text-[#22B07D]">Arriendo de espacios</h1>
-                    <p class="text-sm text-gray-600 mt-3">Completa este formulario y te contactaremos para coordinar el arriendo de tu espacio.</p>
+    <!-- FORMULARIO POSTULA -->
+    <main class="max-w-2xl mx-auto px-4 md:px-8 py-8 md:py-12">
+        <div class="bg-white rounded-3xl shadow-lg border border-gray-100 p-6 md:p-8 space-y-6">
+            <h1 class="text-2xl md:text-3xl font-black text-gray-900 text-center">Arriendo de espacios</h1>
+            <p class="text-sm text-gray-500">Cuéntanos qué espacio necesitas y nuestro equipo te contactará para coordinar el arriendo para tu próximo evento en Vive Ticket.</p>
+
+            <form id="arriendo-form" class="space-y-5">
+                <div>
+                    <label for="arriendo-nombre" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Nombre y apellido *</label>
+                    <input type="text" id="arriendo-nombre" required placeholder="Nombre y apellido" class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
                 </div>
-                <form id="form-arriendo-espacios" class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Nombre completo *</label>
-                        <input type="text" id="arriendo-nombre" required placeholder="Tu nombre" class="w-full border border-[#A9DFCE] rounded-lg px-4 py-2.5 text-sm bg-[#EBF7F2]/40 outline-none focus:border-[#22B07D] focus:ring-2 focus:ring-[#22B07D]/20 transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Celular *</label>
-                        <input type="tel" id="arriendo-celular" required placeholder="+569 1234 5678" class="w-full border border-[#A9DFCE] rounded-lg px-4 py-2.5 text-sm bg-[#EBF7F2]/40 outline-none focus:border-[#22B07D] focus:ring-2 focus:ring-[#22B07D]/20 transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Correo electrónico *</label>
-                        <input type="email" id="arriendo-correo" required placeholder="tu@correo.cl" class="w-full border border-[#A9DFCE] rounded-lg px-4 py-2.5 text-sm bg-[#EBF7F2]/40 outline-none focus:border-[#22B07D] focus:ring-2 focus:ring-[#22B07D]/20 transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Comuna del espacio *</label>
-                        <select id="arriendo-comuna" required class="w-full border border-[#A9DFCE] rounded-lg px-4 py-2.5 text-sm bg-[#EBF7F2]/40 outline-none focus:border-[#22B07D] focus:ring-2 focus:ring-[#22B07D]/20 transition cursor-pointer">
-                            <option value="">Selecciona una comuna</option>
-                            <option value="Providencia">Providencia</option>
-                            <option value="Ñuñoa">Ñuñoa</option>
-                            <option value="Las Condes">Las Condes</option>
-                            <option value="La Reina">La Reina</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Mensaje</label>
-                        <textarea id="arriendo-mensaje" rows="3" placeholder="Cuéntanos qué espacio necesitas..." class="w-full border border-[#A9DFCE] rounded-lg px-4 py-2.5 text-sm bg-[#EBF7F2]/40 outline-none focus:border-[#22B07D] focus:ring-2 focus:ring-[#22B07D]/20 transition"></textarea>
-                    </div>
-                    <div id="arriendo-error" class="text-red-500 text-xs font-semibold hidden"></div>
-                    <button type="button" onclick="enviarConsultaArriendo()" class="w-full bg-[#22B07D] hover:bg-[#1d9c6f] text-white font-black py-3.5 rounded-2xl uppercase tracking-wider text-sm transition shadow-[0_3px_8px_rgba(34,176,125,0.30)] hover:shadow-md cursor-pointer">
-                        📧 Enviar a contacto@viveticket.cl
-                    </button>
-                </form>
-            </div>
+                <div>
+                    <label for="arriendo-celular" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Celular de contacto *</label>
+                    <input type="tel" id="arriendo-celular" required placeholder="+569 1234 5678" class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
+                </div>
+                <div>
+                    <label for="arriendo-correo" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Correo de contacto *</label>
+                    <input type="email" id="arriendo-correo" required placeholder="tucorreo@ejemplo.cl" class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
+                </div>
+                <div>
+                    <label for="arriendo-comuna" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Comuna *</label>
+                    <select id="arriendo-comuna" required class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
+                        <option value="">Selecciona una comuna</option>
+                        <option>Providencia</option>
+                        <option>&Ntilde;uñoa</option>
+                        <option>Las Condes</option>
+                        <option>La Reina</option>
+                        <option>Vitacura</option>
+                        <option>Lo Barnechea</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="arriendo-descripcion" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Sobre tu taller *</label>
+                    <textarea id="arriendo-descripcion" rows="4" placeholder="Cuéntanos de qué trata tu taller, duración, cupos..." class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition resize-y"></textarea>
+                </div>
+                <p id="arriendo-mensaje" class="text-sm font-semibold hidden"></p>
+                <button type="submit" class="w-full bg-[#22B07D] text-white font-black uppercase tracking-wider rounded-2xl px-6 py-4 text-sm hover:bg-[#1d9c6f] transition duration-200 cursor-pointer">
+                    Enviar solicitud de arriendo
+                </button>
+            </form>
         </div>
+
+        <p class="text-center text-xs text-gray-400 mt-6">También puedes escribirnos directo a
+            <a href="mailto:contacto@viveticket.cl" class="text-[#135650] font-bold hover:text-[#0e463c] transition">contacto@viveticket.cl</a>
+        </p>
     </main>
 
     <script>
-        // Enviar consulta de arriendo de espacios
-        function enviarConsultaArriendo() {
+        document.getElementById('arriendo-form').addEventListener('submit', function (e) {
+            e.preventDefault();
             const nombre = document.getElementById('arriendo-nombre').value.trim();
             const celular = document.getElementById('arriendo-celular').value.trim();
             const correo = document.getElementById('arriendo-correo').value.trim();
             const comuna = document.getElementById('arriendo-comuna').value;
-            const mensaje = document.getElementById('arriendo-mensaje').value.trim();
-            const error = document.getElementById('arriendo-error');
+            const descripcion = document.getElementById('arriendo-descripcion').value.trim();
+            const mensajeEl = document.getElementById('arriendo-mensaje');
 
             if (!nombre || !celular || !correo || !comuna) {
-                error.innerText = 'Por favor completa todos los campos obligatorios.';
-                error.classList.remove('hidden');
+                mensajeEl.textContent = 'Por favor completa todos los campos obligatorios.';
+                mensajeEl.classList.remove('hidden');
+                mensajeEl.classList.add('text-red-600');
                 return;
             }
-            error.classList.add('hidden');
+            mensajeEl.classList.add('hidden');
 
-            const asunto = `Consulta arriendo de espacios - ${comuna}`;
+            const asunto = 'Solicitud de arriendo de espacio - ' + comuna;
             const cuerpo = [
-                'Consulta de arriendo de espacios:',
+                'Solicitud de arriendo de espacio:',
                 '',
-                `Nombre: ${nombre}`,
-                `Celular: ${celular}`,
-                `Correo: ${correo}`,
-                `Comuna: ${comuna}`,
-                mensaje ? `Mensaje: ${mensaje}` : ''
+                'Nombre: ' + nombre,
+                'Celular: ' + celular,
+                'Correo: ' + correo,
+                'Comuna: ' + comuna,
+                descripcion ? 'Descripción: ' + descripcion : ''
             ].filter(Boolean).join('\n');
 
-            window.location.href = `mailto:contacto@viveticket.cl?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
-        }
-
-        function renderizarSesion() {
-            const contenedor = document.getElementById('contenedor-boton-sesion');
-            if (!contenedor) return;
-            const usuarioGuardado = localStorage.getItem('usuario_ticketera');
-            let usuario = null;
-            try {
-                usuario = usuarioGuardado ? JSON.parse(usuarioGuardado) : null;
-            } catch (error) {
-                localStorage.removeItem('usuario_ticketera');
-            }
-            if (localStorage.getItem('token_ticketera')) {
-                const nombre = usuario?.nombre || 'Organizador';
-                contenedor.innerHTML = `<a href="dashboard.html" class="text-amber-400 hover:text-amber-300 transition">Hola, ${nombre}</a>`;
-                return;
-            }
-            contenedor.innerHTML = '<a href="login.html" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black px-4 py-2 rounded-lg transition">Portal de organizadores</a>';
-        }
-
-        document.addEventListener('DOMContentLoaded', renderizarSesion);
+            document.getElementById('arriendo-mensaje').classList.add('hidden');
+            window.location.href = 'mailto:contacto@viveticket.cl?subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
+        });
     </script>
 </body>
 </html>

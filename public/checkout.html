@@ -305,6 +305,10 @@
                 const data = await response.json();
 
                 if (data.init_point) {
+                    // Recordar los datos del comprador para el reenvío del QR desde confirmacion.html
+                    try {
+                        localStorage.setItem('comprador_ticketera', JSON.stringify({ nombre, email }));
+                    } catch (e) { console.warn('No se pudo guardar datos en localStorage:', e); }
                     // Redirige directamente al portal seguro de Mercado Pago (Checkout Pro)
                     window.location.href = data.init_point;
                 } else {

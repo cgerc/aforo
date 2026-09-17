@@ -38,11 +38,28 @@
             <span>📥</span>
             <span id="btn-text">Descargar entrada PDF</span>
         </button>
+
+        <button id="btn-download-png" onclick="descargarPNG()" class="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-500 active:scale-95 transition shadow-md flex items-center justify-center space-x-2">
+            <span>🖼️</span>
+            <span>Descargar imagen QR</span>
+        </button>
+
+        <button id="btn-reenviar" onclick="reenviarQR()" class="w-full bg-white text-emerald-700 border border-emerald-200 py-3 rounded-xl font-bold hover:bg-emerald-50 active:scale-95 transition shadow-sm flex items-center justify-center space-x-2">
+            <span>📨</span>
+            <span id="btn-reenviar-text">Reenviar QR por correo</span>
+        </button>
     </div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
         const orderId = params.get('order_id') || params.get('external_reference');
+
+        // Datos del comprador guardados por checkout.html (para el reenvío del QR)
+        let compradorGuardado = { nombre: '', email: '' };
+        try {
+            const guardado = localStorage.getItem('comprador_ticketera');
+            if (guardado) compradorGuardado = JSON.parse(guardado);
+        } catch (e) { console.warn('No se pudo leer comprador_ticketera:', e); }
 
         if (orderId) {
             document.getElementById('order-badge').innerText = `Orden #${orderId}`;
@@ -60,7 +77,11 @@
                 await fetch('/api/orders/confirm-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ order_id: orderId })
+                    body: JSON.stringify({
+                        order_id: orderId,
+                        email: compradorGuardado.email || undefined,
+                        nombre_comprador: compradorGuardado.nombre || undefined
+                    })
                 });
 
                 // 2. Consultar el endpoint GET que devuelve el DataURL del QR
@@ -81,6 +102,52 @@
                 document.getElementById('loading-text').innerText = 'Error al generar el código QR.';
                 document.getElementById('loading-text').classList.add('text-red-500');
             }
+        }
+
+        async function descargarPNG() {
+            const img = document.getElementById('img-qr');
+            if (!img.src || img.classList.contains('hidden')) {
+                return alert('El QR aún no está listo. Espera un momento e inténtalo de nuevo.');
+            }
+            const a = document.createElement('a');
+            a.href = img.src;
+            a.download = `Entrada_QR_${orderId || 'orden'}.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
+        async function reenviarQR() {
+            const btnText = document.getElementById('btn-reenviar-text');
+            if (!orderId) return alert('No se encontró la orden.');
+
+            const email = compradorGuardado.email || prompt('Ingresa el correo con el que registraste el pago para reenviar tu QR:');
+            if (!email) return;
+
+            btnText.innerText = 'Enviando correo...';
+            btnText.parentElement.disabled = true;
+
+            try {
+                const res = await fetch(`/api/orders/${orderId}/re-enviar-qr`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, nombre_comprador: compradorGuardado.nombre })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    btnText.innerText = '✓ QR reenviado a tu correo';
+                } else {
+                    btnText.innerText = data.error || 'No se pudo reenviar. Intenta de nuevo.';
+                }
+            } catch (err) {
+                console.error('Error reenviando QR:', err);
+                btnText.innerText = 'Error al reenviar. Intenta de nuevo.';
+            }
+
+            setTimeout(() => {
+                btnText.innerHTML = '📨 Reenviar QR por correo';
+                btnText.parentElement.disabled = false;
+            }, 5000);
         }
 
         async function descargarPDFDirecto() {

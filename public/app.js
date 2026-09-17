@@ -4,6 +4,8 @@ let markersLayer = null;
 
 let eventosData = [];
 
+let publicidadesData = [];
+
 let carruselIntervalo = null;
 
 let currentIndex = 0;
@@ -273,11 +275,79 @@ function renderizarCarruselSuperior(lista = eventosData) {
     if (!container) return;
 
 
+container.innerHTML = '';
 
-    container.innerHTML = '';
 
 
-    lista.forEach((ev, idx) => {
+    let slidesCarrusel = [];
+
+
+
+    publicidadesData.forEach(pub => {
+
+        slidesCarrusel.push({ tipo: 'publicidad', datos: pub });
+
+    });
+
+
+
+    lista.forEach(ev => {
+
+        slidesCarrusel.push({ tipo: 'evento', datos: ev });
+
+    });
+
+
+
+    if (slidesCarrusel.length === 0) {
+
+        return;
+
+    }
+
+
+
+    slidesCarrusel.forEach((slideDef, idx) => {
+
+
+
+        const esPublicidad = slideDef.tipo === 'publicidad';
+
+        const ev = slideDef.datos;
+
+
+
+        if (esPublicidad) {
+
+            const slidePub = document.createElement('div');
+
+            slidePub.className = `carousel-item absolute inset-0 w-full h-full transition-opacity duration-700 ease-in-out ${idx === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0'} overflow-hidden cursor-pointer`;
+
+            slidePub.title = ev.titulo || 'Publicidad';
+
+            const imagenPub = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=1200';
+
+            slidePub.innerHTML = `
+
+                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-cover" alt="${ev.titulo || 'Publicidad'}">
+
+            `;
+
+            slidePub.onclick = (e) => {
+
+                e.preventDefault();
+
+                const mapa = document.getElementById('mapa');
+
+                if (mapa) mapa.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            };
+
+            container.appendChild(slidePub);
+
+            return;
+
+        }
 
         const flyer = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=1200';
 
@@ -681,6 +751,42 @@ async function cargarDatosInicio() {
         console.error('Error al cargar eventos:', error);
 
         eventosData = [];
+
+    }
+
+
+
+    try {
+
+        const resPub = await fetch('/api/publicidad', { cache: 'no-store', headers: { Accept: 'application/json' } });
+
+        const textoPub = await resPub.text();
+
+        if (resPub.ok) {
+
+            try {
+
+                publicidadesData = JSON.parse(textoPub || '[]');
+
+            } catch (parseError) {
+
+                console.error('La API de publicidad no devolvió JSON válido:', textoPub.slice(0, 500));
+
+                publicidadesData = [];
+
+            }
+
+        } else {
+
+            publicidadesData = [];
+
+        }
+
+    } catch (error) {
+
+        console.error('Error al cargar publicidad:', error);
+
+        publicidadesData = [];
 
     }
 

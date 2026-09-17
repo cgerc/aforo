@@ -198,6 +198,38 @@
             <p id="qr-status" class="text-sm text-gray-600">Esperando cámara…</p>
             <p id="qr-resultado" class="text-sm font-semibold text-amber-700"></p>
         </section>
+
+        <section id="seccion-publicidad" class="bg-white p-6 rounded-xl border shadow-sm space-y-4">
+            <h2 class="text-xl font-bold text-gray-800 border-b pb-3">📣 Agregar publicidad</h2>
+            <p class="text-sm text-gray-500">Publica una imagen que aparecerá en el carrusel principal de la página (clic lleva al mapa de la comuna).</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-2">
+                    <label class="text-sm font-bold text-gray-700 block">Imagen de publicidad *</label>
+                    <input type="file" id="pub-archivo" accept="image/*" class="border p-2.5 rounded-xl w-full bg-gray-50">
+                    <img id="pub-preview" class="hidden w-full max-h-48 object-cover rounded-xl border" alt="Vista previa publicidad">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-sm font-bold text-gray-700 block">Título (opcional)</label>
+                    <input type="text" id="pub-titulo" placeholder="Ej. Aprovecha 50% en tu primer taller" class="border p-2.5 rounded-xl w-full">
+                    <label class="text-sm font-bold text-gray-700 block pt-2">Enlace (opcional)</label>
+                    <input type="url" id="pub-enlace" placeholder="https://..." class="border p-2.5 rounded-xl w-full">
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3 pt-1">
+                <button type="button" onclick="publicarPublicidad()" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-2.5 px-5 rounded-lg text-sm transition cursor-pointer">
+                    🚀 Publicar
+                </button>
+                <span id="pub-mensaje" class="text-sm"></span>
+            </div>
+
+            <div id="seccion-mis-publicidades" class="space-y-3 pt-4 border-t">
+                <h3 class="font-bold text-gray-700">Mis publicidades</h3>
+                <div id="lista-mis-publicidades" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+                <p id="pub-sin-datos" class="text-sm text-gray-400">Aún no has creado publicidades.</p>
+            </div>
+        </section>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -537,7 +569,115 @@
             document.getElementById('btn-publicar').innerText = "🚀 PUBLICAR EVENTO";
             document.getElementById('btn-cancelar-edicion').classList.add('hidden');
             document.getElementById('contenedor-filas-entradas').innerHTML = '';
-            agregarFilaEntrada("General", "15000", 40);
+document.getElementById('pub-archivo').addEventListener('change', function () {
+            const preview = document.getElementById('pub-preview');
+            if (this.files && this.files[0]) {
+                convertirArchivoABase64(this.files[0]).then(base64 => {
+                    preview.src = base64;
+                    preview.classList.remove('hidden');
+                }).catch(e => console.error('Error leyendo imagen:', e));
+            } else {
+                preview.classList.add('hidden');
+            }
+        });
+
+        async function publicarPublicidad() {
+            const mensaje = document.getElementById('pub-mensaje');
+            const archivoInput = document.getElementById('pub-archivo');
+
+            if (!archivoInput.files || !archivoInput.files[0]) {
+                mensaje.textContent = 'Selecciona una imagen para publicar.';
+                mensaje.classList.add('text-red-600');
+                return;
+            }
+
+            const imagen = await convertirArchivoABase64(archivoInput.files[0]);
+            const titulo = document.getElementById('pub-titulo').value.trim();
+            const enlace = document.getElementById('pub-enlace').value.trim();
+
+            mensaje.textContent = 'Publicando...';
+            mensaje.classList.remove('text-red-600');
+            mensaje.classList.add('text-gray-600');
+
+            try {
+                const res = await fetch('/api/publicidad', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...encabezadosSesion() },
+                    body: JSON.stringify({ titulo, imagen, enlace })
+                });
+                const data = await res.json().catch(() => ({}));
+
+                if (res.ok) {
+                    mensaje.textContent = '✅ Publicidad publicada.';
+                    mensaje.classList.remove('text-gray-600');
+                    mensaje.classList.add('text-emerald-600');
+                    archivoInput.value = '';
+                    document.getElementById('pub-titulo').value = '';
+                    document.getElementById('pub-enlace').value = '';
+                    document.getElementById('pub-preview').classList.add('hidden');
+                    cargarMisPublicidades();
+                } else {
+                    mensaje.textContent = `Error (${res.status}): ${data.error || 'No se pudo publicar.'}`;
+                    mensaje.classList.add('text-red-600');
+                }
+            } catch (error) {
+                console.error(error);
+                mensaje.textContent = 'Error de conexión con el servidor.';
+                mensaje.classList.add('text-red-600');
+            }
+        }
+
+        async function cargarMisPublicidades() {
+            try {
+                const res = await fetch('/api/publicidad', { headers: { ...encabezadosSesion() } });
+                const datos = await res.json().catch(() => []);
+                const contenedor = document.getElementById('lista-mis-publicidades');
+                const sinDatos = document.getElementById('pub-sin-datos');
+
+                const activas = Array.isArray(datos) ? datos.filter(p => p.activo !== false) : [];
+
+                if (activas.length === 0) {
+                    contenedor.innerHTML = '';
+                    sinDatos.classList.remove('hidden');
+                    return;
+                }
+                sinDatos.classList.add('hidden');
+
+                contenedor.innerHTML = activas.map(p => `
+                    <div class="border rounded-xl overflow-hidden bg-gray-50">
+                        <img src="${p.imagen || ''}" class="w-full h-28 object-cover" alt="${(p.titulo || 'Publicidad').replace(/"/g, '&quot;')}">
+                        <div class="p-3 space-y-2">
+                            <p class="text-sm font-bold text-gray-800 truncate">${(p.titulo || 'Publicidad').replace(/</g, '&lt;')}</p>
+                            ${p.enlace ? `<p class="text-xs text-gray-500 truncate">🔗 ${p.enlace}</p>` : ''}
+                            <button onclick="desactivarPublicidad(${p.id})" class="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs py-2 rounded-lg border border-red-200 transition cursor-pointer">
+                                ⏹️ Desactivar
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error cargando publicidades:', error);
+            }
+        }
+
+        async function desactivarPublicidad(id) {
+            if (!confirm('¿Desactivar esta publicidad? Dejará de mostrarse en el carrusel.')) return;
+            try {
+                const res = await fetch(`/api/publicidad/${id}`, { method: 'DELETE', headers: { ...encabezadosSesion() } });
+                if (res.ok) {
+                    cargarMisPublicidades();
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    alert(`Error (${res.status}): ${data.error || 'No se pudo desactivar.'}`);
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Error de conexión con el servidor.');
+            }
+        }
+
+        cargarMisPublicidades();
+        agregarFilaEntrada("General", "15000", 40);
 
             const vistaPrevia = document.getElementById('vista-previa-profesional');
             if (vistaPrevia) {

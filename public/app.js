@@ -327,9 +327,11 @@ container.innerHTML = '';
 
             const imagenPub = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=1200';
 
+            slidePub.style.background = '#0d1117';
+
             slidePub.innerHTML = `
 
-                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-cover" alt="${ev.titulo || 'Publicidad'}">
+                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-contain" alt="${ev.titulo || 'Publicidad'}">
 
             `;
 
@@ -360,6 +362,7 @@ container.innerHTML = '';
         slide.className = `carousel-item absolute inset-0 w-full h-full transition-opacity duration-700 ease-in-out ${idx === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0'} overflow-hidden`;
 
         slide.style.backgroundImage = '';
+        slide.style.background = '#0d1117';
 
 
         const precioMin = ev.categorias && ev.categorias.length > 0 ? ev.categorias[0].precio : 0;

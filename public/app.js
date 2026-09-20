@@ -331,7 +331,7 @@ container.innerHTML = '';
 
             slidePub.innerHTML = `
 
-                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-contain" alt="${ev.titulo || 'Publicidad'}">
+                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-contain object-center" alt="${ev.titulo || 'Publicidad'}">
 
             `;
 
@@ -373,7 +373,7 @@ container.innerHTML = '';
 
             <div class="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent z-10"></div>
 
-            <img src="${flyer}" class="absolute inset-0 w-full h-full object-cover" alt="${ev.titulo}">
+            <img src="${flyer}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${ev.titulo}">
 
             <div class="relative z-20 px-8 md:px-16 max-w-2xl text-white carousel-content">
 

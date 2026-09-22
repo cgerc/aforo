@@ -588,7 +588,16 @@
             document.getElementById('btn-publicar').innerText = "🚀 PUBLICAR EVENTO";
             document.getElementById('btn-cancelar-edicion').classList.add('hidden');
             document.getElementById('contenedor-filas-entradas').innerHTML = '';
-document.getElementById('pub-archivo').addEventListener('change', function () {
+            agregarFilaEntrada("General", "15000", 40);
+
+            const vistaPrevia = document.getElementById('vista-previa-profesional');
+            if (vistaPrevia) {
+                vistaPrevia.classList.add('hidden');
+                document.getElementById('img-previa-profesional').src = '';
+            }
+        }
+
+        document.getElementById('pub-archivo').addEventListener('change', function () {
             const preview = document.getElementById('pub-preview');
             if (this.files && this.files[0]) {
                 convertirArchivoABase64(this.files[0]).then(base64 => {
@@ -692,16 +701,6 @@ document.getElementById('pub-archivo').addEventListener('change', function () {
             } catch (error) {
                 console.error(error);
                 alert('Error de conexión con el servidor.');
-            }
-        }
-
-        cargarMisPublicidades();
-        agregarFilaEntrada("General", "15000", 40);
-
-            const vistaPrevia = document.getElementById('vista-previa-profesional');
-            if (vistaPrevia) {
-                vistaPrevia.classList.add('hidden');
-                document.getElementById('img-previa-profesional').src = '';
             }
         }
 

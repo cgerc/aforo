@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tu Entrada - ViveTicket</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 sm:p-8 flex flex-col items-center justify-center">
+
+    <div class="max-w-md w-full space-y-4">
+        <div id="ticket-container" class="bg-white p-6 rounded-2xl shadow border border-gray-100 text-center space-y-4">
+            <div class="space-y-1">
+                <span class="text-xs font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full">Entrada Digital</span>
+                <h1 id="ticket-titulo" class="text-2xl font-black text-green-600 pt-2">Tu Entrada</h1>
+                <p id="ticket-evento" class="text-sm text-gray-600 font-semibold">Cargando taller...</p>
+                <p id="ticket-detalle" class="text-xs text-gray-400"></p>
+            </div>
+
+            <div class="p-5 bg-zinc-50 rounded-xl flex flex-col items-center justify-center border border-zinc-100">
+                <span id="loading-text" class="text-xs text-gray-400 animate-pulse font-medium">Cargando tu entrada...</span>
+                <img id="img-qr" class="w-48 h-48 border bg-white rounded-lg shadow-sm hidden" alt="Tu Entrada QR">
+            </div>
+
+            <div id="ticket-estado" class="text-xs font-bold text-gray-400"></div>
+            <div id="ticket-link" class="text-xs text-gray-400 font-mono"></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+            <button id="btn-download-png" onclick="descargarPNG()" class="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-500 active:scale-95 transition shadow-md">
+                🖼️ PNG
+            </button>
+            <button id="btn-download" onclick="descargarPDF()" class="w-full bg-zinc-950 text-white py-3 rounded-xl font-bold hover:bg-zinc-800 active:scale-95 transition shadow-md">
+                📥 PDF
+            </button>
+        </div>
+    </div>
+
+    <a href="/" class="mt-6 text-xs text-emerald-600 underline font-semibold">← Volver a ViveTicket</a>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('ticket') || params.get('token');
+
+        let qrDataUrl = '';
+        let entradaUsada = false;
+
+        async function cargarTicket() {
+            const cargando = document.getElementById('loading-text');
+            if (!token) {
+                cargando.innerText = 'Error: Falta el token de la entrada.';
+                cargando.classList.add('text-red-500');
+                return;
+            }
+            try {
+                const res = await fetch(`/api/entradas/${encodeURIComponent(token)}`);
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    cargando.innerText = (data && data.error) || 'No se pudo cargar la entrada.';
+                    cargando.classList.add('text-red-500');
+                    return;
+                }
+
+                qrDataUrl = data.qr_data_url;
+                document.getElementById('img-qr').src = qrDataUrl;
+                document.getElementById('img-qr').classList.remove('hidden');
+                cargando.classList.add('hidden');
+
+                const ev = data.evento || {};
+                document.getElementById('ticket-evento').innerText = ev.titulo || 'Taller Vive Ticket';
+                const detalle = [ev.fecha, ev.comuna, ev.direccion].filter(Boolean).join(' · ');
+                if (detalle) document.getElementById('ticket-detalle').innerText = detalle;
+
+                const t = data.ticket || {};
+                entradaUsada = t.status === 'USADA';
+                const estado = document.getElementById('ticket-estado');
+                if (entradaUsada) {
+                    estado.innerText = t.used_at
+                        ? `Entrada ya utilizada (${new Date(t.used_at).toLocaleString('es-CL')})`
+                        : 'Entrada ya utilizada';
+                    estado.className = 'text-xs font-bold text-red-500';
+                } else {
+                    estado.innerText = 'Estado: Vigente';
+                    estado.className = 'text-xs font-bold text-emerald-600';
+                }
+                document.getElementById('ticket-link').innerText = t.order_id ? `Orden #${t.order_id}` : '';
+            } catch (err) {
+                console.error('Error cargando ticket:', err);
+                cargando.innerText = 'Error al cargar la entrada.';
+                cargando.classList.add('text-red-500');
+            }
+        }
+
+        function descargarPNG() {
+            if (!qrDataUrl) return alert('La entrada aún no está lista.');
+            const a = document.createElement('a');
+            a.href = qrDataUrl;
+            a.download = `Entrada_ViveTicket.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
+        function descargarPDF() {
+            if (entradaUsada) {
+                return alert('Esta entrada ya fue utilizada. No se puede descargar como nueva entrada.');
+            }
+            const ticketElement = document.getElementById('ticket-container');
+            if (!window.html2pdf) {
+                return alert('No se pudo generar el PDF en este navegador.');
+            }
+            const opciones = {
+                margin: 8,
+                filename: `Entrada_ViveTicket.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+                jsPDF: { unit: 'mm', format: 'a5', orientation: 'portrait' }
+            };
+            html2pdf().set(opciones).from(ticketElement).save();
+        }
+
+        cargarTicket();
+    </script>
+</body>
+</html>

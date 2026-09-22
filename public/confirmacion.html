@@ -21,13 +21,14 @@
             <div class="space-y-1">
                 <span class="text-xs font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full">Entrada Digital</span>
                 <h1 class="text-2xl font-black text-green-600 pt-2">¡Compra procesada con éxito!</h1>
-                <p class="text-sm text-gray-500">Tu código QR único de acceso ha sido emitido y se ha enviado un recordatorio a tu WhatsApp.</p>
+                <p class="text-sm text-gray-500">Tus entradas QR han sido emitidas y enviadas al correo registrado en el pago.</p>
             </div>
             
-            <div class="p-5 bg-zinc-50 rounded-xl flex flex-col items-center min-h-[220px] justify-center border border-zinc-100">
+            <div id="qr-area">
                 <!-- Estado de Carga -->
-                <span id="loading-text" class="text-xs text-gray-400 animate-pulse font-medium">Generando tu entrada QR...</span>
-                <img id="img-qr" class="w-48 h-48 border bg-white rounded-lg shadow-sm hidden" alt="Tu Entrada QR">
+                <div class="p-5 bg-zinc-50 rounded-xl flex flex-col items-center min-h-[220px] justify-center border border-zinc-100">
+                    <span id="loading-text" class="text-xs text-gray-400 animate-pulse font-medium">Generando tu entrada QR...</span>
+                </div>
             </div>
 
             <div id="order-badge" class="text-xs text-gray-400 font-mono"></div>
@@ -36,12 +37,7 @@
         <!-- Botón de Acción -->
         <button id="btn-download" onclick="descargarPDFDirecto()" class="w-full bg-zinc-950 text-white py-3.5 rounded-xl font-bold hover:bg-zinc-800 active:scale-95 transition shadow-md flex items-center justify-center space-x-2">
             <span>📥</span>
-            <span id="btn-text">Descargar entrada PDF</span>
-        </button>
-
-        <button id="btn-download-png" onclick="descargarPNG()" class="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-500 active:scale-95 transition shadow-md flex items-center justify-center space-x-2">
-            <span>🖼️</span>
-            <span>Descargar imagen QR</span>
+            <span id="btn-text">Descargar entrada(s) PDF</span>
         </button>
 
         <button id="btn-reenviar" onclick="reenviarQR()" class="w-full bg-white text-emerald-700 border border-emerald-200 py-3 rounded-xl font-bold hover:bg-emerald-50 active:scale-95 transition shadow-sm flex items-center justify-center space-x-2">
@@ -84,34 +80,55 @@
                     })
                 });
 
-                // 2. Consultar el endpoint GET que devuelve el DataURL del QR
-                const res = await fetch(`/api/orders/${orderId}/qr`);
+                // 2. Obtener todas las entradas (uno o varios QR por compra)
+                const res = await fetch(`/api/orders/${orderId}/entradas`);
                 const data = await res.json();
+                const entradas = (data && data.entradas) || [];
+                const cargando = document.getElementById('loading-text');
 
-                if (data.qr_data_url) {
-                    const img = document.getElementById('img-qr');
-                    img.src = data.qr_data_url;
-                    img.classList.remove('hidden');
-                    document.getElementById('loading-text').classList.add('hidden');
+                if (entradas.length > 0) {
+                    cargando.classList.add('hidden');
+                    const area = document.getElementById('qr-area');
+                    area.innerHTML = entradas.map((e, i) => renderTarjetaEntrada(e, i + 1, entradas.length)).join('');
+                } else if (data.qr_data_url) {
+                    cargando.classList.add('hidden');
+                    const area = document.getElementById('qr-area');
+                    area.innerHTML = renderTarjetaEntrada({ qr_data_url: data.qr_data_url, token: data.qr_token, status: 'PAGADA' }, 1, 1);
                 } else {
-                    document.getElementById('loading-text').innerText = 'No se pudo cargar el código QR.';
-                    document.getElementById('loading-text').classList.add('text-red-500');
+                    cargando.innerText = 'No se pudo cargar el código QR.';
+                    cargando.classList.add('text-red-500');
                 }
             } catch (err) {
                 console.error('Error procesando QR:', err);
-                document.getElementById('loading-text').innerText = 'Error al generar el código QR.';
-                document.getElementById('loading-text').classList.add('text-red-500');
+                const cargando = document.getElementById('loading-text');
+                cargando.innerText = 'Error al generar el código QR.';
+                cargando.classList.add('text-red-500');
             }
         }
 
-        async function descargarPNG() {
-            const img = document.getElementById('img-qr');
-            if (!img.src || img.classList.contains('hidden')) {
-                return alert('El QR aún no está listo. Espera un momento e inténtalo de nuevo.');
-            }
+        function renderTarjetaEntrada(e, num, total) {
+            const usada = e.status === 'USADA';
+            const enlaceTicket = e.token
+                ? `<a href="/ticket.html?ticket=${encodeURIComponent(e.token)}" target="_blank" class="text-xs text-emerald-600 underline font-semibold">Ver / descargar esta entrada</a>`
+                : '';
+            return `
+                <div class="p-5 bg-zinc-50 rounded-xl flex flex-col items-center border border-zinc-100">
+                    <span class="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${usada ? 'text-red-500 bg-red-50' : 'text-emerald-600 bg-emerald-50'}">
+                        Entrada ${total > 1 ? num + ' · ' : ''}${usada ? 'Usada' : 'Vigente'}
+                    </span>
+                    <img src="${e.qr_data_url}" alt="Entrada ${num}" class="w-48 h-48 border bg-white rounded-lg shadow-sm my-3"/>
+                    ${enlaceTicket}
+                    <button onclick="descargarPNG('${e.qr_data_url}','${num}')" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-500 active:scale-95 transition shadow-sm mt-3 cursor-pointer">
+                        🖼️ Descargar imagen QR${total > 1 ? ' ' + num : ''}
+                    </button>
+                </div>
+            `;
+        }
+
+        function descargarPNG(dataUrl, num) {
             const a = document.createElement('a');
-            a.href = img.src;
-            a.download = `Entrada_QR_${orderId || 'orden'}.png`;
+            a.href = dataUrl;
+            a.download = `Entrada_QR_${orderId || 'orden'}${num ? '_' + num : ''}.png`;
             document.body.appendChild(a);
             a.click();
             a.remove();

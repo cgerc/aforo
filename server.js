@@ -10,7 +10,7 @@ import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import jwt from 'jsonwebtoken';
 import QRCode from 'qrcode';
 import { Resend } from 'resend';
-import { initDb, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats } from './db.js';
+import { initDb, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats, createTickets, getTicketsByOrder, getTicketByToken, getTicketByUuid, countPendingTickets, countTicketsByOrder, markTicketUsedAtomic } from './db.js';
 
 // Importar middleware de autenticación
 import { requireAuth } from './middleware/auth.js';
@@ -20,6 +20,16 @@ import authRoutes from './routes/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Blindaje anti-crash: en Node >= 15 un unhandledRejection/uncaughtException mata
+// el proceso y deja la web en blanco sin aviso. Aquí se registra y se sigue sirviendo.
+process.on('unhandledRejection', (reason) => {
+  console.error('[CRASH-GUARD] unhandledRejection (el servidor sigue activo):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH-GUARD] uncaughtException (el servidor sigue activo):', err);
+});
+
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
@@ -57,6 +67,131 @@ const sanitizeText = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, 200);
 };
+
+const baseUrl = process.env.CLIENT_URL || 'https://viveticket.cl';
+
+// --- Helpers compartidos (entradas / QR por ticket) ---
+function normalizarFecha(f) {
+  if (!f) return '';
+  const s = String(f).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const m = s.match(/^(\d{2})[-\/](\d{2})[-\/](\d{4})/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return s;
+}
+
+async function ordenLookup(id) {
+  let order = null;
+  if (supabase) {
+    try {
+      const { data } = await supabase.from('ordenes').select('*').eq('id', Number(id)).single();
+      order = data;
+    } catch (e) { order = null; }
+  }
+  if (!order) {
+    try { order = await getOrderById(Number(id)); } catch (e) { order = null; }
+  }
+  return order;
+}
+
+async function eventoLookup(eventoId) {
+  let evento = null;
+  if (supabase) {
+    try {
+      const { data } = await supabase.from('eventos').select('*').eq('id', Number(eventoId)).maybeSingle();
+      evento = data;
+    } catch (e) { evento = null; }
+  }
+  if (!evento) {
+    try {
+      const r = await pool.query('SELECT * FROM eventos WHERE id = $1 LIMIT 1', [Number(eventoId)]);
+      if (r.rowCount > 0) evento = r.rows[0];
+    } catch (e) { evento = null; }
+  }
+  return evento;
+}
+
+async function obtenerFechaEvento(tallerId) {
+  if (!tallerId) return null;
+  const ev = await eventoLookup(tallerId);
+  return ev ? ev.fecha : null;
+}
+
+async function hasOrderTickets(orderId) {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('entradas').select('id').eq('order_id', Number(orderId)).limit(1);
+      if (!error && data && data.length > 0) return data.length;
+    } catch (e) { /* seguir a pool */ }
+  }
+  try { return await countTicketsByOrder(orderId); } catch (e) { return 0; }
+}
+
+async function leerEntradasOrden(orderId) {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('entradas').select('*').eq('order_id', Number(orderId)).order('id', { ascending: true });
+      if (!error && data && data.length > 0) return data;
+    } catch (e) { /* seguir a pool */ }
+  }
+  try { return await getTicketsByOrder(orderId); } catch (e) { return []; }
+}
+
+async function buscarEntradaPorUuid(ticketUuid) {
+  if (supabase) {
+    try {
+      const { data } = await supabase.from('entradas').select('*').eq('ticket_uuid', ticketUuid).maybeSingle();
+      if (data) return data;
+    } catch (e) { /* seguir a pool */ }
+  }
+  try { return await getTicketByUuid(ticketUuid); } catch (e) { return null; }
+}
+
+async function buscarEntradaPorToken(token) {
+  if (supabase) {
+    try {
+      const { data } = await supabase.from('entradas').select('*').eq('token', token).maybeSingle();
+      if (data) return data;
+    } catch (e) { /* seguir a pool */ }
+  }
+  try { return await getTicketByToken(token); } catch (e) { return null; }
+}
+
+async function marcarUsadaTicket(ticketUuid) {
+  let usedAt = null;
+  try { usedAt = await markTicketUsedAtomic(ticketUuid); } catch (e) { console.warn('marcarUsadaTicket (pool):', e.message); }
+  if (!usedAt && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('entradas')
+        .update({ status: 'USADA', used_at: new Date().toISOString() })
+        .eq('ticket_uuid', ticketUuid)
+        .eq('status', 'PAGADA')
+        .select('used_at');
+      if (!error && data && data.length > 0) usedAt = data[0].used_at;
+    } catch (e) { console.warn('marcarUsadaTicket (supabase):', e.message); }
+  }
+  return usedAt;
+}
+
+async function contarRestantes(orderId) {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from('entradas').select('id').eq('order_id', Number(orderId)).eq('status', 'PAGADA');
+      if (!error && data) return data.length;
+    } catch (e) { /* seguir a pool */ }
+  }
+  try { return await countPendingTickets(orderId); } catch (e) { return 0; }
+}
+
+async function resolverTituloEvento(order) {
+  let titulo = sanitizeText(order?.titulo_evento) || sanitizeText(order?.tituloEvento) || sanitizeText(order?.taller_nombre) || sanitizeText(order?.titulo) || '';
+  if (!titulo && order?.taller_id) {
+    const ev = await eventoLookup(order.taller_id);
+    if (ev && ev.titulo) titulo = ev.titulo;
+  }
+  return titulo;
+}
 
 // Middlewares globales
 app.use(express.json({ limit: '20mb' }));
@@ -624,7 +759,9 @@ app.post('/api/create-preference', async (req, res) => {
         user_id: user_id ? Number(user_id) : null, 
         taller_id: taller_id, 
         cantidad: Number(cantidad) || 1, 
-        preference_id: null 
+        preference_id: null,
+        email_comprador: emailComprador,
+        nombre_comprador: nombreComprador
       });
     } catch (dbErr) {
       console.warn('Fallo al crear orden con helper local, usando Supabase:', dbErr.message);
@@ -637,7 +774,9 @@ app.post('/api/create-preference', async (req, res) => {
           user_id: user_id ? Number(user_id) : null,
           taller_id: taller_id,
           cantidad: Number(cantidad) || 1,
-          status: 'PENDIENTE'
+          status: 'PENDIENTE',
+          email_comprador: emailComprador || null,
+          nombre_comprador: nombreComprador || null
         }])
         .select()
         .single();
@@ -706,7 +845,9 @@ app.post('/api/create-preference', async (req, res) => {
         .from('ordenes')
         .update({ 
           preference_id: preferenceResult.id,
-          taller_id: taller_id || order.taller_id
+          taller_id: taller_id || order.taller_id,
+          email_comprador: emailComprador || order.email_comprador || '',
+          nombre_comprador: nombreComprador || order.nombre_comprador || ''
         })
         .eq('id', order.id)
         .select('id, taller_id, status');
@@ -723,7 +864,8 @@ app.post('/api/create-preference', async (req, res) => {
   }
 });
 
-// Función auxiliar para marcar la orden pagada y generar el QR sin expiración
+// Crea la orden PAGADA y genera un QR (registro en `entradas`) por cada entrada de la compra.
+// Es idempotente: si la orden ya tiene entradas, no las duplica.
 async function processOrderPayment(orderId, tallerId, cantidad) {
   const tallerIdFinal = tallerId ? Number(tallerId) : null;
 
@@ -732,58 +874,154 @@ async function processOrderPayment(orderId, tallerId, cantidad) {
   }
 
   const qrSecret = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr_secret_change_me';
-  
-  const token = jwt.sign({ order_id: Number(orderId), taller_id: tallerIdFinal }, qrSecret);
 
+  // 1. Idempotencia: si la orden ya generó sus entradas, no volver a crearlas
+  let entradasExistentes = 0;
+  try { entradasExistentes = await hasOrderTickets(orderId); } catch (_) {}
+
+  // 2. Marcado atómico PENDIENTE -> PAGADA (solo "gana" el primero que llegue)
+  let flipped = false;
   try {
-    if (pool) await markOrderPaid(orderId, token);
+    if (pool) {
+      const r = await pool.query(
+        `UPDATE ordenes SET status = 'PAGADA' WHERE id = $1 AND status = 'PENDIENTE' RETURNING id`,
+        [Number(orderId)]
+      );
+      flipped = (r.rowCount || 0) > 0;
+    }
   } catch (err) {
-    console.warn('No se pudo marcar como pagada en DB local pool:', err.message);
+    console.warn('No se pudo marcar PAGADA en DB local pool:', err.message);
   }
 
   if (supabase) {
-    const camposUpdate = { status: 'PAGADA', qr_token: token };
-    if (tallerIdFinal) camposUpdate.taller_id = tallerIdFinal;
-
-    const { error } = await supabase
-      .from('ordenes')
-      .update(camposUpdate)
-      .eq('id', Number(orderId));
-
-    if (error) {
-      console.error('Error actualizando estado en Supabase:', error.message);
+    try {
+      const { data, error } = await supabase
+        .from('ordenes')
+        .update({ status: 'PAGADA' })
+        .eq('id', Number(orderId))
+        .eq('status', 'PENDIENTE')
+        .select('id');
+      if (data && data.length > 0) flipped = true;
+      if (error) console.warn('Error flipeando estado en Supabase:', error.message);
+    } catch (err) {
+      console.warn('Error marcando PAGADA en Supabase:', err.message);
     }
   }
 
-  try {
-    if (tallerIdFinal) await deductSeats(tallerIdFinal, Number(cantidad) || 1);
-  } catch (err) {
-    console.warn('Error descontando cupos:', err.message);
+  // 3. Generar UN QR por entrada (solo quien ganó el marcado PENDIENTE->PAGADA lo hace;
+  //    así, aunque el webhook llegue dos veces, no se duplican entradas)
+  if (flipped && entradasExistentes === 0) {
+    const fechaTaller = await obtenerFechaEvento(tallerIdFinal);
+    const tokens = [];
+    for (let i = 0; i < (Number(cantidad) || 1); i++) {
+      const ticketUuid = crypto.randomUUID();
+      tokens.push({
+        ticket_uuid: ticketUuid,
+        jwt: jwt.sign(
+          { ticket_id: ticketUuid, order_id: Number(orderId), taller_id: tallerIdFinal, fecha: fechaTaller },
+          qrSecret
+        )
+      });
+    }
+
+    try {
+      if (pool) await createTickets({ order_id: orderId, taller_id: tallerIdFinal, cantidad: tokens.length, tokens });
+    } catch (err) {
+      console.warn('No se pudieron crear entradas (pool):', err.message);
+    }
+
+    if (supabase) {
+      try {
+        const filas = tokens.map(t => ({
+          ticket_uuid: t.ticket_uuid,
+          order_id: Number(orderId),
+          taller_id: tallerIdFinal,
+          token: t.jwt,
+          status: 'PAGADA'
+        }));
+        const { error } = await supabase.from('entradas').insert(filas).select('id');
+        if (error) console.warn('No se pudieron crear entradas (Supabase):', error.message);
+      } catch (err) {
+        console.warn('Error creando entradas en Supabase:', err.message);
+      }
+    }
   }
 
-  return token;
+  // 4. Descontar cupos solo si esta llamada ganó el marcado
+  if (flipped && tallerIdFinal) {
+    try {
+      await deductSeats(tallerIdFinal, Number(cantidad) || 1);
+    } catch (err) {
+      console.warn('Error descontando cupos:', err.message);
+    }
+  }
+
+  const tickets = await leerEntradasOrden(orderId);
+  return { token: tickets && tickets.length > 0 ? tickets[0].token : null, tickets: tickets || [] };
 }
 
-async function enviarQRAlComprador({ orderId = null, token, email, nombreComprador, tituloEvento }) {
-  if (!resend) return;
+async function enviarQRAlComprador({ orderId = null, tickets = [], token = null, email, nombreComprador, tituloEvento }) {
   const destino = typeof email === 'string' && /\S+@\S+\.\S+/.test(email.trim()) ? email.trim() : null;
   if (!destino) {
     console.warn('⚠️ No se pudo enviar QR por correo: falta email del comprador (registrado con el pago).');
     return;
   }
+  if (!process.env.RESEND_API_KEY) {
+    console.error('❌ No se envió el correo: falta RESEND_API_KEY en .env');
+    return;
+  }
+  if (!Array.isArray(tickets) || tickets.length === 0) {
+    if (!token) {
+      console.warn('⚠️ No hay QR/entradas para enviar (order_id=' + orderId + ').');
+      return;
+    }
+    tickets = [{ token, ticket_uuid: null }];
+  }
 
   let qrArchivo = null;
+  const adjuntos = [];
+  const qrInline = [];
   try {
     const dirEnvios = path.join(__dirname, 'envios');
     fs.mkdirSync(dirEnvios, { recursive: true });
-    const nombreArchivo = `entrada-qr-${orderId || 'sin-id'}-${Date.now()}.png`;
-    qrArchivo = path.join(dirEnvios, nombreArchivo);
-    await QRCode.toFile(qrArchivo, token, { type: 'png', width: 512, margin: 2 });
-    console.log('💾 Copia del QR guardada en:', qrArchivo);
+
+    for (let i = 0; i < tickets.length; i++) {
+      const t = tickets[i];
+      if (!t || !t.token) continue;
+      const png = await QRCode.toBuffer(t.token, { type: 'png', width: 512, margin: 2 });
+      const b64 = png.toString('base64');
+      const num = i + 1;
+
+      adjuntos.push({
+        filename: `entrada-${num}.png`,
+        content: png,
+        contentType: 'image/png'
+      });
+      qrInline.push(`
+        <div style="display:inline-block;margin:10px;text-align:center;">
+          <p style="font-weight:bold;color:#374151;margin-bottom:6px;">Entrada ${num}</p>
+          <img src="data:image/png;base64,${b64}" alt="Entrada ${num}" style="width:170px;height:170px;border:2px solid #e5e7eb;border-radius:12px;background:#fff;"/>
+          <br/>
+          <a href="${baseUrl}/ticket.html?ticket=${encodeURIComponent(t.token)}" style="font-size:12px;color:#059669;text-decoration:underline;">Ver / descargar esta entrada</a>
+        </div>
+      `);
+
+      if (i === 0) {
+        qrArchivo = path.join(dirEnvios, `entrada-qr-${orderId || 'sin-id'}-${Date.now()}.png`);
+        await QRCode.toFile(qrArchivo, t.token, { type: 'png', width: 512, margin: 2 });
+        console.log('💾 Copia del QR guardada en:', qrArchivo);
+      }
+    }
   } catch (err) {
-    console.warn('No se pudo guardar copia local del QR:', err.message);
+    console.warn('No se pudieron generar los QR adjuntos:', err.message);
   }
 
+  if (adjuntos.length === 0) {
+    console.warn('⚠️ No se generó ningún QR para enviar (order_id=' + orderId + ').');
+    return;
+  }
+
+  // Registro de auditoría
   try {
     if (pool) {
       await pool.query(
@@ -799,9 +1037,9 @@ async function enviarQRAlComprador({ orderId = null, token, email, nombreComprad
       );
       await pool.query(
         `INSERT INTO envios_qr (order_id, qr_token, qr_archivo, email_to, titulo_evento) VALUES ($1, $2, $3, $4, $5)`,
-        [orderId ? Number(orderId) : null, token, qrArchivo, destino, tituloEvento || null]
+        [orderId ? Number(orderId) : null, tickets[0].token, qrArchivo, destino, tituloEvento || null]
       );
-      console.log('🗄️ Referencia del QR registrada en envios_qr (order_id=' + orderId + ')');
+      console.log('🗄️ Referencia del envío registrada en envios_qr (order_id=' + orderId + ', email=' + destino + ')');
     }
     if (supabase && qrArchivo) {
       const { error } = await supabase.from('ordenes').update({ qr_archivo: qrArchivo }).eq('id', Number(orderId));
@@ -810,34 +1048,40 @@ async function enviarQRAlComprador({ orderId = null, token, email, nombreComprad
       }
     }
   } catch (err) {
-    console.warn('No se pudo registrar referencia del QR en BD:', err.message);
+    console.warn('No se pudo registrar referencia del envío en BD:', err.message);
   }
 
-  try {
-    const qrPng = await QRCode.toBuffer(token, { type: 'png', width: 512, margin: 2 });
+  const plural = tickets.length === 1 ? 'tu entrada' : `tus ${tickets.length} entradas`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; padding: 20px; background: #f9fafb; border-radius: 12px;">
+      <h2 style="color: #10b981;">¡Pago confirmado!</h2>
+      <p style="color: #374151;">Hola ${sanitizeText(nombreComprador) || ''}, aquí ${plural === 'tu entrada' ? 'está tu entrada' : 'están tus entradas'} con código QR.</p>
+      <p style="margin-top: 16px;">Cada QR va <strong>adjunto</strong> a este correo y también lo puedes abrir aquí debajo. Muéstralo en la entrada del taller para canjear tu cupo (cada QR se consume de forma individual).</p>
+      <div style="margin-top: 16px; text-align: center;">${qrInline.join('')}</div>
+      <p style="margin-top: 20px; font-size: 12px; color: #9ca3af;">Vive Ticket — ${new Date().toLocaleString('es-CL')}</p>
+    </div>
+  `;
 
-    await resend.emails.send({
-      from: 'Vive Ticket <contacto@viveticket.cl>',
-      to: destino,
-      subject: `🎟️ Tu entrada - ${sanitizeText(tituloEvento) || 'Taller Vive Ticket'}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; background: #f9fafb; border-radius: 12px;">
-          <h2 style="color: #10b981;">¡Pago confirmado!</h2>
-          <p style="color: #374151;">Hola ${sanitizeText(nombreComprador) || ''}, aquí está tu entrada con código QR.</p>
-          <p style="margin-top: 16px;">Tu QR va <strong>adjunto</strong> a este correo como <code>entrada-qr.png</code>. Muéstralo en la entrada del taller para canjear tu cupo.</p>
-          <p style="margin-top: 20px; font-size: 12px; color: #9ca3af;">Vive Ticket — ${new Date().toLocaleString('es-CL')}</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: 'entrada-qr.png',
-          content: qrPng,
-          contentType: 'image/png'
-        }
-      ]
-    });
+  const intentarEnvio = () => resend.emails.send({
+    from: 'Vive Ticket <contacto@viveticket.cl>',
+    to: destino,
+    subject: `🎟️ Tu entrada - ${sanitizeText(tituloEvento) || 'Taller Vive Ticket'}`,
+    html,
+    attachments: adjuntos
+  });
+
+  try {
+    await intentarEnvio();
+    console.log(`📨 QR(s) enviado(s) a ${destino} (order_id=` + orderId + ')');
   } catch (e) {
     console.error('Error enviando correo con QR al comprador:', e.message);
+    // Un reintento inmediato antes de rendirse
+    try {
+      await intentarEnvio();
+      console.log(`📨 QR(s) enviado(s) en reintento a ${destino} (order_id=` + orderId + ')');
+    } catch (e2) {
+      console.error('❌ Reintento de envío de QR fallido:', e2.message);
+    }
   }
 }
 
@@ -859,22 +1103,29 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    if (order.status === 'PAGADA' && order.qr_token) {
-      return res.json({ ok: true, message: 'La orden ya estaba registrada como PAGADA', qr_token: order.qr_token });
+    if (order.status === 'PAGADA') {
+      const tickets = await leerEntradasOrden(order.id);
+      return res.json({
+        ok: true,
+        message: 'La orden ya estaba registrada como PAGADA',
+        qr_token: (tickets && tickets[0]) ? tickets[0].token : (order.qr_token || null),
+        entradas: tickets || []
+      });
     }
 
-    const token = await processOrderPayment(order.id, order.taller_id, order.cantidad);
-    const emailEnvio = sanitizeText(email) || (order?.email_comprador) || (order?.email) || '';
+    const resultado = await processOrderPayment(order.id, order.taller_id, order.cantidad);
+    const emailEnvio = sanitizeText(order?.email_comprador) || sanitizeText(email) || sanitizeText(order?.email) || '';
     if (emailEnvio) {
       await enviarQRAlComprador({
         orderId: order.id,
-        token,
+        tickets: resultado.tickets,
+        token: resultado.token,
         email: emailEnvio,
-        nombreComprador: sanitizeText(nombre_comprador) || (order?.nombre_comprador) || (order?.nombre) || '',
-        tituloEvento: sanitizeText(titulo_evento) || (order?.titulo_evento) || (order?.tituloEvento) || (order?.titulo) || ''
+        nombreComprador: sanitizeText(order?.nombre_comprador) || sanitizeText(nombre_comprador) || sanitizeText(order?.nombre) || '',
+        tituloEvento: await resolverTituloEvento(order)
       });
     }
-    return res.json({ ok: true, qr_token: token });
+    return res.json({ ok: true, qr_token: resultado.token, entradas: resultado.tickets });
   } catch (err) {
     console.error('Error confirmando pago desde frontend:', err);
     return res.status(500).json({ error: 'Error interno procesando la confirmación' });
@@ -932,18 +1183,23 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
     }
 
     if (status === 'approved') {
-      if (order.status === 'PAGADA' && order.qr_token) {
+      if (order.status === 'PAGADA') {
         return res.status(200).json({ ok: true, message: 'Orden ya registrada como PAGADA' });
       }
 
-      const token = await processOrderPayment(order.id, order.taller_id, order.cantidad);
-      const emailCompradorPago = sanitizeText((payment?.metadata?.email_comprador) || (payment?.payer?.email) || '');
+      const resultado = await processOrderPayment(order.id, order.taller_id, order.cantidad);
+      const emailCompradorPago = sanitizeText(order?.email_comprador)
+        || sanitizeText((payment?.metadata?.email_comprador) || (payment?.payer?.email) || '');
+      const nombreCompradorPago = sanitizeText(order?.nombre_comprador)
+        || sanitizeText((payment?.metadata?.nombre_comprador) || (payment?.payer?.first_name) || '');
+      const tituloEventoWebhook = sanitizeText((payment?.metadata?.titulo_evento) || '') || await resolverTituloEvento(order);
       await enviarQRAlComprador({
         orderId: order.id,
-        token,
-        email: emailCompradorPago,
-        nombreComprador: sanitizeText((payment?.metadata?.nombre_comprador) || (payment?.payer?.first_name) || ''),
-        tituloEvento: sanitizeText((payment?.metadata?.titulo_evento) || (order?.taller_nombre) || boundTituloEvento || '')
+        tickets: resultado.tickets,
+        token: resultado.token,
+        email: emailCompradorPago || '',
+        nombreComprador: nombreCompradorPago,
+        tituloEvento: tituloEventoWebhook
       });
       return res.status(200).json({ ok: true });
     }
@@ -955,81 +1211,159 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
   }
 });
 
-// Obtener QR/token de la orden
+// Obtener QR/token de la orden (multi-entrada; conserva compat con qr_data_url único)
 app.get('/api/orders/:id/qr', async (req, res) => {
   try {
     const { id } = req.params;
-    let order = null;
-
-    if (supabase) {
-      const { data } = await supabase.from('ordenes').select('*').eq('id', Number(id)).single();
-      order = data;
-    }
-
-    if (!order && pool) {
-      order = await getOrderById(Number(id));
-    }
+    const order = await ordenLookup(Number(id));
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
     if (order.status !== 'PAGADA') return res.status(403).json({ error: 'Orden no está pagada' });
 
-    const qrToken = order.qr_token;
-    if (!qrToken) return res.status(404).json({ error: 'QR no disponible' });
+    const tickets = await leerEntradasOrden(Number(id));
+    const entradas = [];
+    for (const t of tickets) {
+      entradas.push({
+        ticket_uuid: t.ticket_uuid,
+        token: t.token,
+        qr_data_url: await QRCode.toDataURL(t.token),
+        status: t.status,
+        used_at: t.used_at
+      });
+    }
 
-    const qrDataUrl = await QRCode.toDataURL(qrToken);
-    return res.json({ qr_token: qrToken, qr_data_url: qrDataUrl });
+    if (entradas.length === 0 && order.qr_token) {
+      const qrDataUrl = await QRCode.toDataURL(order.qr_token);
+      return res.json({ qr_token: order.qr_token, qr_data_url: qrDataUrl, entradas: [] });
+    }
+    if (entradas.length === 0) return res.status(404).json({ error: 'QR no disponible' });
+
+    return res.json({
+      qr_token: entradas[0].token,
+      qr_data_url: entradas[0].qr_data_url,
+      entradas
+    });
   } catch (err) {
     console.error('Error obteniendo QR:', err);
     return res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// Reenviar correo con el QR al comprador (panel del comprador)
+// Listar todas las entradas (QR) de una orden pagada
+app.get('/api/orders/:id/entradas', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const order = await ordenLookup(Number(id));
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+    if (order.status !== 'PAGADA') return res.status(403).json({ error: 'Orden no está pagada' });
+
+    const tickets = await leerEntradasOrden(Number(id));
+    const entradas = [];
+    for (const t of tickets) {
+      entradas.push({
+        ticket_uuid: t.ticket_uuid,
+        token: t.token,
+        qr_data_url: await QRCode.toDataURL(t.token),
+        status: t.status,
+        used_at: t.used_at
+      });
+    }
+
+    if (entradas.length === 0 && order.qr_token) {
+      entradas.push({
+        ticket_uuid: null,
+        token: order.qr_token,
+        qr_data_url: await QRCode.toDataURL(order.qr_token),
+        status: order.status,
+        used_at: null
+      });
+    }
+
+    return res.json({ ok: true, order_id: Number(id), cantidad: Number(order.cantidad) || 1, entradas });
+  } catch (err) {
+    console.error('Error listando entradas:', err);
+    return res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Página pública de una entrada individual (usada por ticket.html desde el correo)
+app.get('/api/entradas/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    if (!token) return res.status(400).json({ error: 'Falta el token de la entrada' });
+
+    const ticket = await buscarEntradaPorToken(token);
+    // Retrocompatibilidad: si el QR es un token legacy de la orden completa
+    if (!ticket) {
+      const decoded = (() => { try { return jwt.verify(token, qrSecret); } catch { return null; } })();
+      if (decoded && decoded.order_id) {
+        const order = await ordenLookup(decoded.order_id);
+        if (order && (order.qr_token === token || (decoded.ticket_id == null))) {
+          const evento = order.taller_id ? await eventoLookup(order.taller_id) : null;
+          const qrDataUrl = await QRCode.toDataURL(token);
+          return res.json({
+            ok: true,
+            ticket: { order_id: order.id, status: order.status, used_at: null, taller_id: order.taller_id, ticket_uuid: `order_${order.id}` },
+            evento,
+            qr_data_url: qrDataUrl
+          });
+        }
+      }
+      return res.status(404).json({ error: 'Entrada no encontrada' });
+    }
+
+    let evento = null;
+    if (ticket.taller_id) {
+      evento = await eventoLookup(ticket.taller_id);
+    }
+
+    const qrDataUrl = await QRCode.toDataURL(token);
+    return res.json({
+      ok: true,
+      ticket: {
+        ticket_uuid: ticket.ticket_uuid,
+        token: ticket.token,
+        status: ticket.status,
+        used_at: ticket.used_at,
+        order_id: ticket.order_id,
+        taller_id: ticket.taller_id
+      },
+      evento,
+      qr_data_url: qrDataUrl
+    });
+  } catch (err) {
+    console.error('Error obteniendo entrada:', err);
+    return res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Reenviar correo con el/los QR al comprador (panel del comprador)
 app.post('/api/orders/:id/re-enviar-qr', async (req, res) => {
   try {
     const { id } = req.params;
     const { email, nombre_comprador } = req.body || {};
-    let order = null;
-
-    if (supabase) {
-      const { data } = await supabase.from('ordenes').select('*').eq('id', Number(id)).single();
-      order = data;
-    }
-    if (!order && pool) {
-      order = await getOrderById(Number(id));
-    }
+    const order = await ordenLookup(Number(id));
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
     if (order.status !== 'PAGADA') return res.status(403).json({ error: 'La orden no está pagada' });
-    if (!order.qr_token) return res.status(404).json({ error: 'No hay QR disponible para esta orden' });
 
-    const emailEnvio = sanitizeText(email) || (order?.email_comprador) || (order?.email) || '';
+    const tickets = await leerEntradasOrden(Number(id));
+    if (tickets.length === 0 && !order.qr_token) {
+      return res.status(404).json({ error: 'No hay QR disponible para esta orden' });
+    }
+
+    const emailEnvio = sanitizeText(order?.email_comprador) || sanitizeText(email) || sanitizeText(order?.email) || '';
     if (!emailEnvio) {
       return res.status(400).json({ error: 'Falta el correo del comprador para reenviar el QR.' });
     }
 
-    let tituloEvento = sanitizeText((order?.titulo_evento) || (order?.tituloEvento) || '');
-    if (!tituloEvento && order?.taller_id) {
-      if (supabase) {
-        try {
-          const { data: ev } = await supabase.from('eventos').select('titulo').eq('id', Number(order.taller_id)).single();
-          if (ev) tituloEvento = ev.titulo;
-        } catch (e) { console.warn('No se pudo leer título del evento (Supabase):', e.message); }
-      }
-      if (!tituloEvento && pool) {
-        try {
-          const r = await pool.query('SELECT titulo FROM eventos WHERE id = $1 LIMIT 1', [Number(order.taller_id)]);
-          if (r.rowCount > 0) tituloEvento = r.rows[0].titulo;
-        } catch (e) { console.warn('No se pudo leer título del evento (pool):', e.message); }
-      }
-    }
-
     await enviarQRAlComprador({
       orderId: order.id,
-      token: order.qr_token,
+      tickets,
+      token: tickets[0] ? tickets[0].token : order.qr_token,
       email: emailEnvio,
-      nombreComprador: sanitizeText(nombre_comprador) || (order?.nombre_comprador) || (order?.nombre) || '',
-      tituloEvento
+      nombreComprador: sanitizeText(order?.nombre_comprador) || sanitizeText(nombre_comprador) || sanitizeText(order?.nombre) || '',
+      tituloEvento: await resolverTituloEvento(order)
     });
     return res.json({ ok: true, message: 'QR reenviado por correo.' });
   } catch (err) {
@@ -1124,7 +1458,46 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(403).json({ valid: false, message: 'Este QR pertenece a otro taller/evento.' });
     }
 
-    // 4. Buscar la orden
+    // FLUJO NUEVO POR ENTRADA: cada QR representa UNA entrada de la compra (se consume individual)
+    if (decoded.ticket_id) {
+      const ticket = await buscarEntradaPorUuid(decoded.ticket_id);
+      if (!ticket) {
+        return res.status(404).json({ valid: false, message: 'Entrada no encontrada en la base de datos.' });
+      }
+
+      // Control de fecha: la entrada debe corresponder a la fecha del taller/evento
+      if (decoded.fecha) {
+        const evAutorizado = await eventoLookup(eventoIdAutorizado);
+        const fechaValidador = evAutorizado ? normalizarFecha(evAutorizado.fecha) : '';
+        const fechaTicket = normalizarFecha(decoded.fecha);
+        if (fechaValidador && fechaTicket && fechaValidador !== fechaTicket) {
+          return res.status(403).json({ valid: false, message: 'Esta entrada no corresponde a la fecha de este taller/evento.' });
+        }
+      }
+
+      // Estado de uso de ESTA entrada (el resto de la compra no se afecta)
+      if (ticket.status === 'USADA') {
+        const cuando = ticket.used_at ? ` (${new Date(ticket.used_at).toLocaleString('es-CL')})` : '';
+        return res.status(409).json({ valid: false, message: '¡ALERTA! Esta entrada ya fue escaneada y utilizada.' + cuando });
+      }
+      if (ticket.status !== 'PAGADA') {
+        return res.status(400).json({ valid: false, message: `La entrada tiene estado: ${ticket.status}. No autorizada.` });
+      }
+
+      // Marcado individual atómico: solo "gana" un escaneo; el resto permanece PAGADA
+      const usedAt = await marcarUsadaTicket(ticket.ticket_uuid);
+      if (!usedAt) {
+        return res.status(409).json({ valid: false, message: '¡ALERTA! Esta entrada ya fue escaneada y utilizada.' });
+      }
+
+      const restantes = await contarRestantes(ticket.order_id);
+      const msgRestantes = restantes > 0
+        ? `Entrada válida. Quedan ${restantes} entrada(s) de esta compra.`
+        : 'Entrada válida. ¡Acceso permitido!';
+      return res.json({ valid: true, message: msgRestantes, order_id: ticket.order_id, ticket_id: ticket.ticket_uuid });
+    }
+
+    // FLUJO LEGACY: QR antiguo referenciaba a la orden completa (retrocompatibilidad)
     let order = null;
     if (supabase) {
       const { data } = await supabase.from('ordenes').select('*').eq('id', decoded.order_id).single();
@@ -1139,7 +1512,6 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(404).json({ valid: false, message: 'Orden no encontrada en la base de datos.' });
     }
 
-    // 5. Verificar estado de uso
     if (order.status === 'USADA') {
       return res.status(409).json({ valid: false, message: '¡ALERTA! Esta entrada ya fue escaneada y utilizada.' });
     }
@@ -1148,7 +1520,6 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(400).json({ valid: false, message: `La entrada tiene estado: ${order.status}. No autorizada.` });
     }
 
-    // 6. Marcar como USADA
     if (supabase) {
       await supabase.from('ordenes').update({ status: 'USADA' }).eq('id', order.id);
     }

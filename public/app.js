@@ -170,9 +170,11 @@ function inicializarMapa() {
 
         map = L.map('mapa').setView([-33.435, -70.620], 12);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
 
-            attribution: '© OpenStreetMap contributors'
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012',
+
+            maxZoom: 19
 
         }).addTo(map);
 

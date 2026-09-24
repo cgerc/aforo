@@ -70,8 +70,22 @@ async function initDb() {
         tickets_vendidos INTEGER DEFAULT 0,
         tickets_max INTEGER DEFAULT 40,
         categorias JSONB DEFAULT '[]'::jsonb,
+        validador_token TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       );
+    `);
+
+    // Migración segura: agregar validador_token si falta (tablas ya existentes)
+    await client.query(`
+      ALTER TABLE eventos ADD COLUMN IF NOT EXISTS validador_token TEXT;
+    `);
+
+    // Migración segura: profesional que imparte el taller
+    await client.query(`
+      ALTER TABLE eventos ADD COLUMN IF NOT EXISTS profesional_nombre TEXT;
+    `);
+    await client.query(`
+      ALTER TABLE eventos ADD COLUMN IF NOT EXISTS profesional_imagen TEXT;
     `);
 
     await client.query(`
@@ -102,6 +116,36 @@ async function initDb() {
       );
     `);
 
+    // Migración: correo/nombre del comprador (obligatorio al inicio del pago)
+    await client.query(`ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS email_comprador TEXT;`);
+    await client.query(`ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS nombre_comprador TEXT;`);
+
+    // Un QR (registro) por entrada: cada compra con cantidad>1 crea N filas aquí
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS entradas (
+        id BIGSERIAL PRIMARY KEY,
+        ticket_uuid TEXT UNIQUE NOT NULL,
+        order_id BIGINT REFERENCES ordenes(id) ON DELETE CASCADE,
+        taller_id INTEGER,
+        token TEXT UNIQUE NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PAGADA',
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // Migraciones seguras por si la tabla ya existe parcialmente
+    await client.query(`ALTER TABLE entradas ADD COLUMN IF NOT EXISTS ticket_uuid TEXT;`);
+    await client.query(`ALTER TABLE entradas ADD COLUMN IF NOT EXISTS order_id BIGINT;`);
+    await client.query(`ALTER TABLE entradas ADD COLUMN IF NOT EXISTS taller_id INTEGER;`);
+    await client.query(`ALTER TABLE entradas ADD COLUMN IF NOT EXISTS token TEXT;`);
+    await client.query(`ALTER TABLE entradas ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'PAGADA';`);
+    await client.query(`ALTER TABLE entradas ADD COLUMN IF NOT EXISTS used_at TIMESTAMPTZ;`);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_entradas_order ON entradas(order_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_entradas_uuid ON entradas(ticket_uuid);`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_entradas_token ON entradas(token);`);
+
     console.log('✅ Base de datos lista y tablas preparadas');
   } catch (err) {
     console.error('❌ Error al inicializar la base de datos:', err);
@@ -117,7 +161,7 @@ function sanitizeText(value) {
 }
 
 // --- Funciones para ordenar y actualizar estados ---
-async function createOrder({ user_id, taller_id, cantidad = 1, preference_id = null }) {
+async function createOrder({ user_id, taller_id, cantidad = 1, preference_id = null, email_comprador = null, nombre_comprador = null }) {
   const client = await pool.connect();
   try {
     let validTallerId = null;
@@ -131,8 +175,9 @@ async function createOrder({ user_id, taller_id, cantidad = 1, preference_id = n
     }
 
     const res = await client.query(
-      `INSERT INTO ordenes (user_id, taller_id, cantidad, status, preference_id) VALUES ($1, $2, $3, 'PENDIENTE', $4) RETURNING *`,
-      [user_id || null, validTallerId, Number(cantidad) || 1, preference_id]
+      `INSERT INTO ordenes (user_id, taller_id, cantidad, status, preference_id, email_comprador, nombre_comprador)
+       VALUES ($1, $2, $3, 'PENDIENTE', $4, $5, $6) RETURNING *`,
+      [user_id || null, validTallerId, Number(cantidad) || 1, preference_id, email_comprador || null, nombre_comprador || null]
     );
     return res.rows[0];
   } finally {
@@ -214,6 +259,101 @@ async function deductSeats(tallerId, cantidad) {
   }
 }
 
+// --- Entradas (un registro / QR por ticket de la compra) ---
+async function createTickets({ order_id, taller_id, cantidad = 1, tokens = [] }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (let i = 0; i < cantidad; i++) {
+      const item = tokens[i];
+      if (!item || !item.ticket_uuid || !item.jwt) continue;
+      await client.query(
+        `INSERT INTO entradas (ticket_uuid, order_id, taller_id, token, status) VALUES ($1, $2, $3, $4, 'PAGADA')`,
+        [item.ticket_uuid, Number(order_id), taller_id ? Number(taller_id) : null, item.jwt]
+      );
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function getTicketsByOrder(orderId) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(`SELECT * FROM entradas WHERE order_id = $1 ORDER BY id ASC`, [Number(orderId)]);
+    return res.rows;
+  } finally {
+    client.release();
+  }
+}
+
+async function getTicketByToken(token) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(`SELECT * FROM entradas WHERE token = $1 LIMIT 1`, [token]);
+    return res.rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
+async function getTicketByUuid(ticketUuid) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(`SELECT * FROM entradas WHERE ticket_uuid = $1 LIMIT 1`, [ticketUuid]);
+    return res.rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
+async function countPendingTickets(orderId) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT COUNT(*)::int AS total FROM entradas WHERE order_id = $1 AND status = 'PAGADA'`,
+      [Number(orderId)]
+    );
+    return res.rows[0] ? Number(res.rows[0].total) : 0;
+  } finally {
+    client.release();
+  }
+}
+
+async function countTicketsByOrder(orderId) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT COUNT(*)::int AS total FROM entradas WHERE order_id = $1`,
+      [Number(orderId)]
+    );
+    return res.rows[0] ? Number(res.rows[0].total) : 0;
+  } finally {
+    client.release();
+  }
+}
+
+// Marca la entrada como USADA de forma atómica (evita doble escaneo).
+// Devuelve used_at si esta llamada "ganó" la marca; null si ya estaba usada.
+async function markTicketUsedAtomic(ticketUuid) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE entradas SET status = 'USADA', used_at = NOW() WHERE ticket_uuid = $1 AND status = 'PAGADA' RETURNING used_at`,
+      [ticketUuid]
+    );
+    if (res.rowCount === 0) return null;
+    return res.rows[0].used_at;
+  } finally {
+    client.release();
+  }
+}
+
 export {
   pool,
   initDb,
@@ -222,5 +362,12 @@ export {
   getOrderById,
   getOrderByPreference,
   markOrderPaid,
-  deductSeats
+  deductSeats,
+  createTickets,
+  getTicketsByOrder,
+  getTicketByToken,
+  getTicketByUuid,
+  countPendingTickets,
+  countTicketsByOrder,
+  markTicketUsedAtomic
 };

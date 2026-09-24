@@ -11,6 +11,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Librería para forzar la descarga del PDF directamente en vez de imprimir -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        .pagina-entrada { page-break-before: always; break-before: page; }
+    </style>
     
 </head>
 <body class="bg-gray-50 min-h-screen p-4 sm:p-8 flex flex-col items-center justify-center">
@@ -21,13 +24,14 @@
             <div class="space-y-1">
                 <span class="text-xs font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full">Entrada Digital</span>
                 <h1 class="text-2xl font-black text-green-600 pt-2">¡Compra procesada con éxito!</h1>
-                <p class="text-sm text-gray-500">Tu código QR único de acceso ha sido emitido y se ha enviado un recordatorio a tu WhatsApp.</p>
+                <p class="text-sm text-gray-500">Tus entradas QR han sido emitidas y enviadas al correo registrado en el pago.</p>
             </div>
             
-            <div class="p-5 bg-zinc-50 rounded-xl flex flex-col items-center min-h-[220px] justify-center border border-zinc-100">
+            <div id="qr-area">
                 <!-- Estado de Carga -->
-                <span id="loading-text" class="text-xs text-gray-400 animate-pulse font-medium">Generando tu entrada QR...</span>
-                <img id="img-qr" class="w-48 h-48 border bg-white rounded-lg shadow-sm hidden" alt="Tu Entrada QR">
+                <div class="p-5 bg-zinc-50 rounded-xl flex flex-col items-center min-h-[220px] justify-center border border-zinc-100">
+                    <span id="loading-text" class="text-xs text-gray-400 animate-pulse font-medium">Generando tu entrada QR...</span>
+                </div>
             </div>
 
             <div id="order-badge" class="text-xs text-gray-400 font-mono"></div>
@@ -36,13 +40,34 @@
         <!-- Botón de Acción -->
         <button id="btn-download" onclick="descargarPDFDirecto()" class="w-full bg-zinc-950 text-white py-3.5 rounded-xl font-bold hover:bg-zinc-800 active:scale-95 transition shadow-md flex items-center justify-center space-x-2">
             <span>📥</span>
-            <span id="btn-text">Descargar entrada PDF</span>
+            <span id="btn-text">Descargar entrada(s) PDF</span>
+        </button>
+
+        <button id="btn-reenviar" onclick="reenviarQR()" class="w-full bg-white text-emerald-700 border border-emerald-200 py-3 rounded-xl font-bold hover:bg-emerald-50 active:scale-95 transition shadow-sm flex items-center justify-center space-x-2">
+            <span>📨</span>
+            <span id="btn-reenviar-text">Reenviar QR por correo</span>
         </button>
     </div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
         const orderId = params.get('order_id') || params.get('external_reference');
+
+        // [SEGURIDAD] Token de acceso a la orden: desde la URL (back_url de MP) o memoria.
+        let accessToken = params.get('at') || localStorage.getItem('orden_at_' + (orderId || '')) || '';
+
+        function headersOrden(extra) {
+            const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
+            if (accessToken) h['X-Order-Access'] = accessToken;
+            return h;
+        }
+
+        // Datos del comprador guardados por checkout.html (para el reenvío del QR)
+        let compradorGuardado = { nombre: '', email: '' };
+        try {
+            const guardado = localStorage.getItem('comprador_ticketera');
+            if (guardado) compradorGuardado = JSON.parse(guardado);
+        } catch (e) { console.warn('No se pudo leer comprador_ticketera:', e); }
 
         if (orderId) {
             document.getElementById('order-badge').innerText = `Orden #${orderId}`;
@@ -57,30 +82,106 @@
 
             try {
                 // 1. Confirmación de respaldo por si el Webhook no ha finalizado
-                await fetch('/api/orders/confirm-payment', {
+                const rConfirm = await fetch('/api/orders/confirm-payment', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ order_id: orderId })
+                    headers: headersOrden(),
+                    body: JSON.stringify({
+                        order_id: orderId,
+                        email: compradorGuardado.email || undefined,
+                        nombre_comprador: compradorGuardado.nombre || undefined
+                    })
                 });
+                const dataConfirm = await rConfirm.json();
+                if (dataConfirm && dataConfirm.at) {
+                    accessToken = dataConfirm.at;
+                    localStorage.setItem('orden_at_' + orderId, dataConfirm.at);
+                }
 
-                // 2. Consultar el endpoint GET que devuelve el DataURL del QR
-                const res = await fetch(`/api/orders/${orderId}/qr`);
+                // 2. Obtener todas las entradas (uno o varios QR por compra)
+                const res = await fetch(`/api/orders/${orderId}/entradas`, { headers: headersOrden() });
                 const data = await res.json();
+                const entradas = (data && data.entradas) || [];
+                const cargando = document.getElementById('loading-text');
 
-                if (data.qr_data_url) {
-                    const img = document.getElementById('img-qr');
-                    img.src = data.qr_data_url;
-                    img.classList.remove('hidden');
-                    document.getElementById('loading-text').classList.add('hidden');
+                if (entradas.length > 0) {
+                    cargando.classList.add('hidden');
+                    const area = document.getElementById('qr-area');
+                    area.innerHTML = entradas.map((e, i) => renderTarjetaEntrada(e, i + 1, entradas.length)).join('');
+                } else if (data.qr_data_url) {
+                    cargando.classList.add('hidden');
+                    const area = document.getElementById('qr-area');
+                    area.innerHTML = renderTarjetaEntrada({ qr_data_url: data.qr_data_url, token: data.qr_token, status: 'PAGADA' }, 1, 1);
                 } else {
-                    document.getElementById('loading-text').innerText = 'No se pudo cargar el código QR.';
-                    document.getElementById('loading-text').classList.add('text-red-500');
+                    cargando.innerText = 'No se pudo cargar el código QR.';
+                    cargando.classList.add('text-red-500');
                 }
             } catch (err) {
                 console.error('Error procesando QR:', err);
-                document.getElementById('loading-text').innerText = 'Error al generar el código QR.';
-                document.getElementById('loading-text').classList.add('text-red-500');
+                const cargando = document.getElementById('loading-text');
+                cargando.innerText = 'Error al generar el código QR.';
+                cargando.classList.add('text-red-500');
             }
+        }
+
+        function renderTarjetaEntrada(e, num, total) {
+            const usada = e.status === 'USADA';
+            const enlaceTicket = e.token
+                ? `<a href="/ticket.html?ticket=${encodeURIComponent(e.token)}" target="_blank" class="text-xs text-emerald-600 underline font-semibold">Ver / descargar esta entrada</a>`
+                : '';
+            return `
+                <div class="${num > 1 ? 'pagina-entrada ' : ''}p-5 bg-zinc-50 rounded-xl flex flex-col items-center border border-zinc-100">
+                    <span class="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${usada ? 'text-red-500 bg-red-50' : 'text-emerald-600 bg-emerald-50'}">
+                        Entrada ${total > 1 ? num + ' · ' : ''}${usada ? 'Usada' : 'Vigente'}
+                    </span>
+                    <img src="${e.qr_data_url}" alt="Entrada ${num}" class="w-48 h-48 border bg-white rounded-lg shadow-sm my-3"/>
+                    ${enlaceTicket}
+                    <button onclick="descargarPNG('${e.qr_data_url}','${num}')" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-500 active:scale-95 transition shadow-sm mt-3 cursor-pointer">
+                        🖼️ Descargar imagen QR${total > 1 ? ' ' + num : ''}
+                    </button>
+                </div>
+            `;
+        }
+
+        function descargarPNG(dataUrl, num) {
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `Entrada_QR_${orderId || 'orden'}${num ? '_' + num : ''}.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
+        async function reenviarQR() {
+            const btnText = document.getElementById('btn-reenviar-text');
+            if (!orderId) return alert('No se encontró la orden.');
+
+            const email = compradorGuardado.email || prompt('Ingresa el correo con el que registraste el pago para reenviar tu QR:');
+            if (!email) return;
+
+            btnText.innerText = 'Enviando correo...';
+            btnText.parentElement.disabled = true;
+
+            try {
+                const res = await fetch(`/api/orders/${orderId}/re-enviar-qr`, {
+                    method: 'POST',
+                    headers: headersOrden(),
+                    body: JSON.stringify({ email, nombre_comprador: compradorGuardado.nombre })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    btnText.innerText = '✓ QR reenviado a tu correo';
+                } else {
+                    btnText.innerText = data.error || 'No se pudo reenviar. Intenta de nuevo.';
+                }
+            } catch (err) {
+                console.error('Error reenviando QR:', err);
+                btnText.innerText = 'Error al reenviar. Intenta de nuevo.';
+            }
+
+            setTimeout(() => {
+                btnText.innerHTML = '📨 Reenviar QR por correo';
+                btnText.parentElement.disabled = false;
+            }, 5000);
         }
 
         async function descargarPDFDirecto() {
@@ -95,11 +196,13 @@
                 filename:     `Entrada_ViveTicket_${orderId || 'orden'}.pdf`,
                 image:        { type: 'jpeg', quality: 0.98 },
                 html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+                pagebreak:    { mode: ['css', 'legacy'], avoid: ['img', 'button'] },
                 jsPDF:        { unit: 'mm', format: 'a5', orientation: 'portrait' }
             };
 
             try {
-                // Genera y dispara la descarga en segundo plano sin abrir ventana de impresión
+                // Genera y dispara la descarga en segundo plano sin abrir ventana de impresión.
+                // Un elemento por página gracias a page-break-before (clase pagina-entrada).
                 await html2pdf().set(opciones).from(ticketElement).save();
             } catch (error) {
                 console.error('Error al generar PDF:', error);

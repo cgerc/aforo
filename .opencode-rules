@@ -1,0 +1,28 @@
+# .opencode-rules
+# Reglas vinculantes para agentes que trabajan sobre ViveTicket.
+# Consultas también docs/SEGURIDAD.md (la versión completa).
+
+## No destructivo (obligatorio)
+- Prohibido ejecutar en tablas de producción (entradas, ordenes, eventos,
+  usuarios, publicidad, registros_pendientes, envios_qr):
+    DROP, TRUNCATE, DELETE sin WHERE, UPDATE masivos, migraciones destructivas.
+- Prohibido modificar esquema / aplicar DDL a la base de datos sin
+  confirmación previa y explícita del usuario.
+- Ni initDb(), ni scripts/, ni código nuevo pueden ejecutar operaciones
+  destructivas sobre esas tablas.
+
+## Seguridad (obligatorio)
+- Nunca escribir/comitear llaves (SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET,
+  QR_SECRET, MERCADOPAGO_ACCESS_TOKEN, RESEND_API_KEY). Solo .env local.
+- Nunca exponer secretos en public/ ni en respuestas JSON ni en logs.
+- Siempre consultas SQL parametrizadas ($1, $2, ...). Cero concatenación de input.
+- Validar y sanitizar toda entrada HTTP; escapar HTML en salidas.
+- No dejar fallbacks de secretos ('supersecretlocal', 'qr_secret_change_me').
+- Endpoints sensibles (QR/entradas/órdenes) exigen token de acceso o sesión dueño.
+- Precio/cantidad siempre desde la DB, nunca del cliente.
+- Consumo de entradas atómico (UPDATE ... WHERE status='PAGADA').
+- Rate limiting en auth y reenvíos.
+
+## Trabajo
+- Verificar con `node --check` y arranque + smoke test tras cada cambio.
+- Confirmar con el usuario antes de cualquier operación sobre la base de datos.

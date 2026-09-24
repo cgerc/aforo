@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arriendo de espacios | Vive Ticket</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#F1F6EF] text-[#1E293B] font-sans">
+
+    <!-- HEADER PROPIO (navbar completo solo en index.html) -->
+    <header class="w-full bg-[#F1F6EF] px-4 md:px-8 xl:px-12 py-2.5 md:py-3 flex items-center justify-between border-b border-gray-100 sticky top-0 z-50">
+        <a href="/" class="flex items-center shrink-0 group">
+            <img src="logo.jpg" alt="Vive Ticket" class="h-10 md:h-12 w-auto object-contain transition-transform duration-200 group-hover:scale-105">
+        </a>
+        <a href="/" class="inline-flex items-center justify-center gap-1.5 text-[#135650] font-bold uppercase tracking-wider rounded-2xl px-4 sm:px-5 py-2.5 text-[11px] sm:text-xs whitespace-nowrap hover:bg-[#e0f4ec] transition duration-200 cursor-pointer">
+            &larr; Volver al inicio
+        </a>
+    </header>
+
+    <!-- FORMULARIO POSTULA -->
+    <main class="max-w-2xl mx-auto px-4 md:px-8 py-8 md:py-12">
+        <div class="bg-white rounded-3xl shadow-lg border border-gray-100 p-6 md:p-8 space-y-6">
+            <h1 class="text-2xl md:text-3xl font-black text-gray-900 text-center">Arriendo de espacios</h1>
+            <p class="text-sm text-gray-500">Cuéntanos qué espacio necesitas y nuestro equipo te contactará para coordinar el arriendo para tu próximo evento en Vive Ticket.</p>
+
+            <form id="arriendo-form" class="space-y-5">
+                <div>
+                    <label for="arriendo-nombre" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Nombre y apellido *</label>
+                    <input type="text" id="arriendo-nombre" required placeholder="Nombre y apellido" class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
+                </div>
+                <div>
+                    <label for="arriendo-celular" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Celular de contacto *</label>
+                    <input type="tel" id="arriendo-celular" required placeholder="+569 1234 5678" class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
+                </div>
+                <div>
+                    <label for="arriendo-correo" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Correo de contacto *</label>
+                    <input type="email" id="arriendo-correo" required placeholder="tucorreo@ejemplo.cl" class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
+                </div>
+                <div>
+                    <label for="arriendo-comuna" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Comuna *</label>
+                    <select id="arriendo-comuna" required class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
+                        <option value="">Selecciona una comuna</option>
+                        <option>Providencia</option>
+                        <option>&Ntilde;uñoa</option>
+                        <option>Las Condes</option>
+                        <option>La Reina</option>
+                        <option>Vitacura</option>
+                        <option>Lo Barnechea</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="arriendo-descripcion" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Sobre tu taller *</label>
+                    <textarea id="arriendo-descripcion" rows="4" placeholder="Cuéntanos de qué trata tu taller, duración, cupos..." class="w-full bg-[#F1F6EF] border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#26B488] transition resize-y"></textarea>
+                </div>
+                <p id="arriendo-mensaje" class="text-sm font-semibold hidden"></p>
+                <button type="submit" class="w-full bg-[#22B07D] text-white font-black uppercase tracking-wider rounded-2xl px-6 py-4 text-sm hover:bg-[#1d9c6f] transition duration-200 cursor-pointer">
+                    Enviar solicitud de arriendo
+                </button>
+            </form>
+        </div>
+
+        <p class="text-center text-xs text-gray-400 mt-6">También puedes escribirnos directo a
+            <a href="mailto:contacto@viveticket.cl" class="text-[#135650] font-bold hover:text-[#0e463c] transition">contacto@viveticket.cl</a>
+        </p>
+    </main>
+
+    <script>
+        document.getElementById('arriendo-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const nombre = document.getElementById('arriendo-nombre').value.trim();
+            const celular = document.getElementById('arriendo-celular').value.trim();
+            const correo = document.getElementById('arriendo-correo').value.trim();
+            const comuna = document.getElementById('arriendo-comuna').value;
+            const descripcion = document.getElementById('arriendo-descripcion').value.trim();
+            const mensajeEl = document.getElementById('arriendo-mensaje');
+
+            if (!nombre || !celular || !correo || !comuna) {
+                mensajeEl.textContent = 'Por favor completa todos los campos obligatorios.';
+                mensajeEl.classList.remove('hidden');
+                mensajeEl.classList.add('text-red-600');
+                return;
+            }
+            mensajeEl.classList.add('hidden');
+
+            const asunto = 'Solicitud de arriendo de espacio - ' + comuna;
+            const cuerpo = [
+                'Solicitud de arriendo de espacio:',
+                '',
+                'Nombre: ' + nombre,
+                'Celular: ' + celular,
+                'Correo: ' + correo,
+                'Comuna: ' + comuna,
+                descripcion ? 'Descripción: ' + descripcion : ''
+            ].filter(Boolean).join('\n');
+
+            document.getElementById('arriendo-mensaje').classList.add('hidden');
+            window.location.href = 'mailto:contacto@viveticket.cl?subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
+        });
+    </script>
+</body>
+</html>

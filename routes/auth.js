@@ -1,15 +1,24 @@
 ﻿// routes/auth.js
 import express from 'express';
-//import { Resend } from 'resend';
+import { Resend } from 'resend';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, sanitizeText } from '../db.js';
+import { rateLimit, consumirBucket, resetBucket } from '../middleware/rateLimit.js';
 
 const router = express.Router();
-const jwtSecret = process.env.JWT_SECRET || 'supersecretlocal';
+const jwtSecret = process.env.JWT_SECRET || '';
 const verificationTTL = Number(process.env.VERIFICATION_TTL_MS) || 15 * 60 * 1000;
 
-//const resend = new Resend(process.env.RESEND_API_KEY);
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Rate limits básicos por IP (ventana en memoria, compartida entre rutas)
+const limitLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
+const limitRegister = rateLimit({ windowMs: 60 * 60 * 1000, max: 5 });
+const limitResend = rateLimit({ windowMs: 15 * 60 * 1000, max: 4 });
+const limitVerify = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function sendVerificationEmail(to, code) {
   if (!process.env.RESEND_API_KEY) {
@@ -28,8 +37,11 @@ function generateVerificationCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-router.post('/register', async (req, res) => {
+router.post('/register', limitRegister, async (req, res) => {
   try {
+    if (!jwtSecret) {
+      return res.status(500).json({ error: 'JWT_SECRET no configurado en el servidor.' });
+    }
     const nombre = sanitizeText(req.body.nombre);
     const apellido = sanitizeText(req.body.apellido);
     const empresa = sanitizeText(req.body.empresa);
@@ -41,6 +53,15 @@ router.post('/register', async (req, res) => {
     if (!nombre || !apellido || !empresa || !email || !password) {
       return res.status(400).json({ error: 'Faltan campos obligatorios para registrar el usuario.' });
     }
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ error: 'El correo electrónico no es válido.' });
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
+    }
+
+    // Limpiar pendientes expirados del mismo correo antes de re-registrar
+    await pool.query('DELETE FROM registros_pendientes WHERE email = $1 AND expira < $2', [email, Date.now()]);
 
     const existingUser = await pool.query('SELECT email FROM usuarios WHERE email = $1', [email]);
     if (existingUser.rowCount > 0) {
@@ -75,13 +96,19 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/verify-email', async (req, res) => {
+router.post('/verify-email', limitVerify, async (req, res) => {
   try {
     const email = sanitizeText(req.body.email).toLowerCase();
     const codigo = sanitizeText(req.body.codigo);
 
     if (!email || !codigo) {
       return res.status(400).json({ error: 'Correo y código son requeridos.' });
+    }
+
+    // Límite de intentos por correo (anti fuerza bruta del código de 6 dígitos)
+    const intentos = consumirBucket(`verify:${email}`, { windowMs: verificationTTL, max: 8 });
+    if (!intentos.ok) {
+      return res.status(429).json({ error: 'Demasiados intentos de verificación. Solicita un código nuevo.' });
     }
 
     const pending = await pool.query('SELECT * FROM registros_pendientes WHERE email = $1', [email]);
@@ -135,6 +162,7 @@ router.post('/verify-email', async (req, res) => {
       await client.query('DELETE FROM registros_pendientes WHERE email = $1', [email]);
       await client.query('COMMIT');
 
+      resetBucket(`verify:${email}`);
       return res.json({ message: 'Correo verificado y usuario creado.' });
     } catch (innerError) {
       await client.query('ROLLBACK');
@@ -148,18 +176,62 @@ router.post('/verify-email', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/resend-code', limitResend, async (req, res) => {
   try {
+    const email = sanitizeText(req.body.email).toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({ error: 'El correo es requerido.' });
+    }
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ error: 'El correo electrónico no es válido.' });
+    }
+
+    const pending = await pool.query('SELECT * FROM registros_pendientes WHERE email = $1', [email]);
+    if (pending.rowCount === 0) {
+      return res.status(404).json({ error: 'No existe un registro pendiente para este correo.' });
+    }
+
+    const codigo = generateVerificationCode();
+    const expira = Date.now() + verificationTTL;
+
+    await pool.query(
+      'UPDATE registros_pendientes SET codigo = $1, expira = $2 WHERE email = $3',
+      [codigo, expira, email]
+    );
+
+    await sendVerificationEmail(email, codigo);
+    resetBucket(`verify:${email}`);
+
+    return res.json({ message: 'Código de verificación reenviado.', modo: 'resend' });
+  } catch (error) {
+    console.error('Error en /api/auth/resend-code:', error);
+    return res.status(500).json({ error: error.message || 'No se pudo reenviar el código.' });
+  }
+});
+
+router.post('/login', limitLogin, async (req, res) => {
+  try {
+    if (!jwtSecret) {
+      return res.status(500).json({ error: 'JWT_SECRET no configurado en el servidor.' });
+    }
     const email = sanitizeText(req.body.email).toLowerCase();
     const password = req.body.password;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Correo y contraseña son requeridos.' });
     }
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ error: 'El correo electrónico no es válido.' });
+    }
+    if (typeof password !== 'string' || password.length === 0) {
+      return res.status(400).json({ error: 'La contraseña es requerida.' });
+    }
 
     const userResult = await pool.query('SELECT id, nombre, apellido, empresa, email, telefono, password, verificado FROM usuarios WHERE email = $1', [email]);
+    // [SEGURIDAD] Sin enumeración: mismo error para usuario inexistente y contraseña incorrecta.
     if (userResult.rowCount === 0) {
-      return res.status(404).json({ error: 'Usuario no encontrado.' });
+      return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
     }
 
     const user = userResult.rows[0];
@@ -169,7 +241,7 @@ router.post('/login', async (req, res) => {
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
-      return res.status(401).json({ error: 'Contraseña incorrecta.' });
+      return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
     }
 
     const token = jwt.sign({ id: user.id, email: user.email }, jwtSecret, { expiresIn: '8h' });

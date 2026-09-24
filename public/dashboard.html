@@ -85,6 +85,25 @@
                     <input type="file" id="evento-archivo" accept="image/*" class="w-full p-2.5 border rounded-lg bg-gray-50 outline-none text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer">
                 </div>
 
+                <!-- Profesional del taller -->
+                <div class="md:col-span-2 bg-slate-50 p-5 rounded-xl border space-y-4">
+                    <div class="border-b pb-3">
+                        <h3 class="text-md font-bold text-gray-800">💼 Profesional que imparte el taller</h3>
+                        <p class="text-xs text-gray-500">Agrega el nombre y una foto de la persona a cargo del taller.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Nombre del profesional:</label>
+                        <input type="text" id="evento-profesional-nombre" placeholder="Ej. Psicóloga María José Rojas" class="w-full p-3 border rounded-lg bg-white outline-none focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Foto del profesional:</label>
+                        <input type="file" id="evento-profesional-archivo" accept="image/*" class="w-full p-2.5 border rounded-lg bg-white outline-none text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200 cursor-pointer">
+                        <div id="vista-previa-profesional" class="mt-3 hidden">
+                            <img id="img-previa-profesional" src="" alt="Vista previa del profesional" class="w-20 h-20 object-cover rounded-full border-2 border-amber-300 shadow">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Fecha y Hora -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Fecha y Hora de la función:</label>
@@ -153,6 +172,7 @@
                         <tr class="text-gray-400 border-b text-xs uppercase font-bold">
                             <th class="pb-3">Flyer</th>
                             <th class="pb-3">Evento</th>
+                            <th class="pb-3">Profesional</th>
                             <th class="pb-3">Categoría</th>
                             <th class="pb-3">Dirección</th>
                             <th class="pb-3 text-center">Validador QR</th>
@@ -177,6 +197,39 @@
             <canvas id="qr-canvas" class="hidden"></canvas>
             <p id="qr-status" class="text-sm text-gray-600">Esperando cámara…</p>
             <p id="qr-resultado" class="text-sm font-semibold text-amber-700"></p>
+        </section>
+
+        <section id="seccion-publicidad" class="bg-white p-6 rounded-xl border shadow-sm space-y-4">
+            <h2 class="text-xl font-bold text-gray-800 border-b pb-3">📣 Agregar publicidad</h2>
+            <p class="text-sm text-gray-500">Publica una imagen que aparecerá en el carrusel principal de la página (clic lleva al mapa de la comuna).</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-2">
+                    <label class="text-sm font-bold text-gray-700 block">Imagen de publicidad *</label>
+                    <p class="text-xs text-gray-400 mt-1">Formato horizontal 16:9 recomendado (1920×1080 px, o 1920×600 px para banner panorámico).</p>
+                    <input type="file" id="pub-archivo" accept="image/*" class="border p-2.5 rounded-xl w-full bg-gray-50">
+                    <img id="pub-preview" class="hidden w-full aspect-video object-cover object-center rounded-xl border bg-zinc-900" alt="Vista previa publicidad">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-sm font-bold text-gray-700 block">Título (opcional)</label>
+                    <input type="text" id="pub-titulo" placeholder="Ej. Aprovecha 50% en tu primer taller" class="border p-2.5 rounded-xl w-full">
+                    <label class="text-sm font-bold text-gray-700 block pt-2">Enlace (opcional)</label>
+                    <input type="url" id="pub-enlace" placeholder="https://..." class="border p-2.5 rounded-xl w-full">
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3 pt-1">
+                <button type="button" onclick="publicarPublicidad()" class="bg-amber-500 hover:bg-amber-600 text-zinc-950 font-black py-2.5 px-5 rounded-lg text-sm transition cursor-pointer">
+                    🚀 Publicar
+                </button>
+                <span id="pub-mensaje" class="text-sm"></span>
+            </div>
+
+            <div id="seccion-mis-publicidades" class="space-y-3 pt-4 border-t">
+                <h3 class="font-bold text-gray-700">Mis publicidades</h3>
+                <div id="lista-mis-publicidades" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+                <p id="pub-sin-datos" class="text-sm text-gray-400">Aún no has creado publicidades.</p>
+            </div>
         </section>
     </main>
 
@@ -329,6 +382,25 @@
             });
         }
 
+        async function comprimirImagenBase64(dataURL, maxAncho = 1200, calidad = 0.85) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const proporcion = Math.min(1, maxAncho / img.width);
+                    const ancho = Math.round(img.width * proporcion);
+                    const alto = Math.round(img.height * proporcion);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = ancho;
+                    canvas.height = alto;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, ancho, alto);
+                    resolve(canvas.toDataURL('image/jpeg', calidad));
+                };
+                img.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+                img.src = dataURL;
+            });
+        }
+
         async function obtenerCoordenadasDeDireccion(direccion, comuna) {
             try {
                 const direccionLimpia = direccion.replace(/avenida/gi, "Av").trim();
@@ -359,7 +431,7 @@
 
         async function cargarMisEventos() {
             try {
-                const res = await fetch('/api/eventos', {
+                const res = await fetch('/api/eventos/mios', {
                     headers: { ...encabezadosSesion() }
                 });
                 
@@ -375,12 +447,14 @@
                 tbody.innerHTML = '';
 
                 if (!Array.isArray(listaEventosLocales) || listaEventosLocales.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-gray-500">No tienes eventos publicados.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-gray-500">No tienes eventos publicados.</td></tr>`;
                     return;
                 }
 
                 listaEventosLocales.forEach(ev => {
                     const flyerImg = ev.imagen || 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=100';
+                    const profImg = ev.profesional_imagen || null;
+                    const profNombre = ev.profesional_nombre || 'Sin profesional asignado';
                     const tokenOId = ev.validador_token || ev.id;
                     const parametro = ev.validador_token ? `token=${ev.validador_token}` : `taller_id=${ev.id}`;
                     const urlValidador = `${window.location.origin}/validador.html?${parametro}`;
@@ -393,6 +467,14 @@
                             <td class="py-3 font-semibold text-gray-900">
                                 ${ev.titulo}
                                 <span class="block text-xs text-gray-500 font-normal line-clamp-1">${ev.descripcion || 'Sin descripción'}</span>
+                            </td>
+                            <td class="py-3">
+                                <div class="flex items-center gap-2">
+                                    ${profImg
+                                        ? `<img src="${profImg}" class="w-9 h-9 object-cover rounded-full border border-amber-300" alt="${profNombre}">`
+                                        : `<div class="w-9 h-9 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center text-xs font-bold text-amber-800">${(profNombre || '?').charAt(0).toUpperCase()}</div>`}
+                                    <span class="text-xs text-gray-700 font-medium line-clamp-1">${profNombre}</span>
+                                </div>
                             </td>
                             <td class="py-3"><span class="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-bold">${ev.categoria}</span></td>
                             <td class="py-3 text-xs text-gray-500">${ev.direccion || ''} (${ev.comuna || ''})</td>
@@ -473,6 +555,18 @@
             document.getElementById('evento-comuna').value = ev.comuna || 'providencia';
             document.getElementById('evento-direccion').value = ev.direccion || '';
 
+            document.getElementById('evento-profesional-nombre').value = ev.profesional_nombre || '';
+
+            const vistaPrevia = document.getElementById('vista-previa-profesional');
+            const imgPrevia = document.getElementById('img-previa-profesional');
+            if (ev.profesional_imagen) {
+                imgPrevia.src = ev.profesional_imagen;
+                vistaPrevia.classList.remove('hidden');
+            } else {
+                imgPrevia.src = '';
+                vistaPrevia.classList.add('hidden');
+            }
+
             const contenedor = document.getElementById('contenedor-filas-entradas');
             contenedor.innerHTML = '';
             if (ev.categorias && ev.categorias.length > 0) {
@@ -496,7 +590,128 @@
             document.getElementById('btn-cancelar-edicion').classList.add('hidden');
             document.getElementById('contenedor-filas-entradas').innerHTML = '';
             agregarFilaEntrada("General", "15000", 40);
+
+            const vistaPrevia = document.getElementById('vista-previa-profesional');
+            if (vistaPrevia) {
+                vistaPrevia.classList.add('hidden');
+                document.getElementById('img-previa-profesional').src = '';
+            }
         }
+
+        document.getElementById('pub-archivo').addEventListener('change', function () {
+            const preview = document.getElementById('pub-preview');
+            if (this.files && this.files[0]) {
+                convertirArchivoABase64(this.files[0]).then(async base64 => {
+                    preview.src = await comprimirImagenBase64(base64, 1920, 0.85);
+                    preview.classList.remove('hidden');
+                }).catch(e => console.error('Error leyendo imagen:', e));
+            } else {
+                preview.classList.add('hidden');
+            }
+        });
+
+        async function publicarPublicidad() {
+            const mensaje = document.getElementById('pub-mensaje');
+            const archivoInput = document.getElementById('pub-archivo');
+
+            if (!archivoInput.files || !archivoInput.files[0]) {
+                mensaje.textContent = 'Selecciona una imagen para publicar.';
+                mensaje.classList.add('text-red-600');
+                return;
+            }
+
+            const imagen = await comprimirImagenBase64(await convertirArchivoABase64(archivoInput.files[0]), 1920, 0.85);
+            const titulo = document.getElementById('pub-titulo').value.trim();
+            const enlace = document.getElementById('pub-enlace').value.trim();
+
+            mensaje.textContent = 'Publicando...';
+            mensaje.classList.remove('text-red-600');
+            mensaje.classList.add('text-gray-600');
+
+            try {
+                const res = await fetch('/api/publicidad', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...encabezadosSesion() },
+                    body: JSON.stringify({ titulo, imagen, enlace })
+                });
+                const data = await res.json().catch(() => ({}));
+
+                if (res.ok) {
+                    mensaje.textContent = '✅ Publicidad publicada.';
+                    mensaje.classList.remove('text-gray-600');
+                    mensaje.classList.add('text-emerald-600');
+                    archivoInput.value = '';
+                    document.getElementById('pub-titulo').value = '';
+                    document.getElementById('pub-enlace').value = '';
+                    document.getElementById('pub-preview').classList.add('hidden');
+                    cargarMisPublicidades();
+                } else {
+                    mensaje.textContent = `Error (${res.status}): ${data.error || 'No se pudo publicar.'}`;
+                    mensaje.classList.add('text-red-600');
+                }
+            } catch (error) {
+                console.error(error);
+                mensaje.textContent = 'Error de conexión con el servidor.';
+                mensaje.classList.add('text-red-600');
+            }
+        }
+
+        async function cargarMisPublicidades() {
+            try {
+                const res = await fetch('/api/publicidad', { headers: { ...encabezadosSesion() } });
+                const datos = await res.json().catch(() => []);
+                const contenedor = document.getElementById('lista-mis-publicidades');
+                const sinDatos = document.getElementById('pub-sin-datos');
+
+                const activas = Array.isArray(datos) ? datos.filter(p => p.activo !== false) : [];
+
+                if (activas.length === 0) {
+                    contenedor.innerHTML = '';
+                    sinDatos.classList.remove('hidden');
+                    return;
+                }
+                sinDatos.classList.add('hidden');
+
+                contenedor.innerHTML = activas.map(p => `
+                    <div class="border rounded-xl overflow-hidden bg-gray-50">
+                        <img src="${p.imagen || ''}" class="w-full aspect-video object-cover object-center" alt="${(p.titulo || 'Publicidad').replace(/"/g, '&quot;')}">
+                        <div class="p-3 space-y-2">
+                            <p class="text-sm font-bold text-gray-800 truncate">${(p.titulo || 'Publicidad').replace(/</g, '&lt;')}</p>
+                            ${p.enlace ? `<p class="text-xs text-gray-500 truncate">🔗 ${p.enlace}</p>` : ''}
+                            <button onclick="desactivarPublicidad(${p.id})" class="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs py-2 rounded-lg border border-red-200 transition cursor-pointer">
+                                ⏹️ Desactivar
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error cargando publicidades:', error);
+            }
+        }
+
+        async function desactivarPublicidad(id) {
+            if (!confirm('¿Desactivar esta publicidad? Dejará de mostrarse en el carrusel.')) return;
+            try {
+                const res = await fetch(`/api/publicidad/${id}`, { method: 'DELETE', headers: { ...encabezadosSesion() } });
+                if (res.ok) {
+                    cargarMisPublicidades();
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    alert(`Error (${res.status}): ${data.error || 'No se pudo desactivar.'}`);
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Error de conexión con el servidor.');
+            }
+        }
+
+        document.getElementById('evento-profesional-archivo').addEventListener('change', async (e) => {
+            const archivo = e.target.files[0];
+            if (!archivo) return;
+            const base64 = await convertirArchivoABase64(archivo);
+            document.getElementById('img-previa-profesional').src = base64;
+            document.getElementById('vista-previa-profesional').classList.remove('hidden');
+        });
 
         document.getElementById('form-evento').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -514,6 +729,13 @@
 
                 if (archivoInput.files && archivoInput.files[0]) {
                     imagenBase64 = await convertirArchivoABase64(archivoInput.files[0]);
+                }
+
+                let profesionalImagenBase64 = null;
+                const archivoProfesional = document.getElementById('evento-profesional-archivo');
+
+                if (archivoProfesional.files && archivoProfesional.files[0]) {
+                    profesionalImagenBase64 = await convertirArchivoABase64(archivoProfesional.files[0]);
                 }
 
                 const direccionTexto = document.getElementById('evento-direccion').value;
@@ -549,10 +771,19 @@
                     lat: coords.lat,
                     lng: coords.lng,
                     categorias: categoriasEntradas,
-                    ticketsMax: cuposTotales
+                    ticketsMax: cuposTotales,
+                    profesionalNombre: document.getElementById('evento-profesional-nombre').value,
+                    profesionalImagen: null
                 };
 
                 if (imagenBase64) payload.imagen = imagenBase64;
+                if (esEdicion && !imagenBase64) delete payload.imagen;
+                if (profesionalImagenBase64) {
+                    payload.profesionalImagen = profesionalImagenBase64;
+                } else if (esEdicion) {
+                    const evActual = listaEventosLocales.find(e => String(e.id) === String(eventoId));
+                    payload.profesionalImagen = evActual ? (evActual.profesional_imagen || null) : null;
+                }
 
                 const url = esEdicion ? `/api/eventos/${eventoId}` : '/api/eventos';
                 const metodo = esEdicion ? 'PUT' : 'POST';
@@ -583,6 +814,9 @@
 
         agregarFilaEntrada("General", "15000", 40);
         cargarMisEventos();
+        cargarMisPublicidades();
+        window.publicarPublicidad = publicarPublicidad;
+        window.desactivarPublicidad = desactivarPublicidad;
     </script>
 </body>
 </html>

@@ -154,6 +154,16 @@ function inicializarMapa() {
 
     try {
 
+        if (typeof L === 'undefined') {
+
+            console.warn('Leaflet no está disponible (L indefinido). Revisa que /vendor/leaflet/leaflet.js se haya cargado sin bloqueos.');
+
+            mapaContainer.innerHTML = '<div class="w-full h-full flex items-center justify-center text-slate-400 text-sm font-medium">Mapa no disponible en este momento</div>';
+
+            return;
+
+        }
+
         if (map !== null) map.remove();
 
 
@@ -178,11 +188,27 @@ function inicializarMapa() {
 
     } catch (err) {
 
-        console.error("Error mapa:", err);
+        if (err && err.name === 'ReferenceError') {
+
+            console.error('Error mapa: referencia no definida (¿Leaflet cargó correctamente?). Detalle:', err.message);
+
+        } else {
+
+            console.error("Error mapa:", err);
+
+        }
+
+        mapaContainer.innerHTML = '<div class="w-full h-full flex items-center justify-center text-slate-400 text-sm font-medium">Mapa no disponible en este momento</div>';
 
     }
 
 }
+
+window.addEventListener('resize', () => {
+
+    if (map) map.invalidateSize();
+
+});
 
 
 

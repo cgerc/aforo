@@ -6,34 +6,23 @@
     <title>Vive Ticket</title>
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="manifest" href="/site.webmanifest">
-    <!-- Proxima Nova (fallback) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             theme: {
                 extend: {
-                    fontFamily: {
-                        sans: ['"Proxima Nova"', 'Inter', '-apple-system', 'Helvetica Neue', 'Helvetica', 'Roboto', 'Arial', 'sans-serif'],
-                    },
                     colors: {
                         brand: {
-                            bg: '#F8FAF8',
-                            primary: '#26B488',
-                            'primary-hover': '#1FA078',
-                            mint: '#A0E1C9',
-                            'mint-dark': '#1B5E4B',
-                            dark: '#1E293B',
-                            muted: '#64748B',
-                            bar: '#52585B',
-                            'bar-light': '#4B5563',
+                            dark: '#1e3a2b',      // Verde bosque profundo del logo
+                            primary: '#10b981',   // Esmeralda principal
+                            turquesa: '#06b6d4',  // Turquesa acento
+                            mint: '#6ee7b7',      // Menta claro
                         }
                     }
                 }
@@ -41,63 +30,59 @@
         }
     </script>
 </head>
-<body class="bg-[#F8FAF8] text-[#1E293B] font-sans">
+<body class="bg-gray-50 text-gray-900 font-sans">
 
-    <!-- NAVBAR -->
-    <header class="w-full bg-[#F1F6EF] px-4 md:px-8 xl:px-12 py-2.5 md:py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5 border-b border-gray-100 sticky top-0 z-[1000]">
-        <!-- Logo -->
-        <a href="/" class="flex items-center shrink-0 group">
-            <img src="logo.jpg" alt="Vive Ticket" class="h-10 md:h-12 w-auto object-contain transition-transform duration-200 group-hover:scale-105">
-        </a>
-
-        <!-- Buscador píldora (siempre en la misma fila que el logo) -->
-        <div class="relative flex items-center w-full sm:w-auto sm:flex-1 sm:min-w-[200px] min-w-0 max-w-[520px] sm:ml-3 xl:ml-5">
-            <svg class="absolute left-3.5 w-4 h-4 text-[#94A3B8]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
-            </svg>
-            <input type="text" id="buscador-global" placeholder="Buscar eventos, talleres..." class="rounded-full bg-[#52585B] text-slate-200 placeholder-[#94A3B8] text-sm pl-11 pr-4 py-2.5 w-full focus:outline-none focus:ring-2 focus:ring-[#26B488] transition">
-        </div>
-
-        <!-- Derecha: botones + portal -->
-        <div class="flex flex-wrap items-center justify-start sm:justify-end gap-2.5 text-sm">
-            <a href="postula.html" class="inline-flex items-center justify-center bg-[#EBF7F2] border border-[#A9DFCE] text-[#135650] font-bold uppercase tracking-wider text-center rounded-2xl px-4 sm:px-5 py-2.5 text-[11px] sm:text-xs whitespace-nowrap shadow-[0_3px_8px_rgba(34,176,125,0.18)] hover:shadow-md hover:bg-[#e0f4ec] transition duration-200 cursor-pointer">
-                Postula tu taller
+<nav class="bg-white text-zinc-900 px-6 md:px-10 py-3.5 flex justify-between items-center sticky top-0 z-[1000] border-b border-gray-100 shadow-sm w-full">
+        <!-- LADO IZQUIERDO: LOGO + BUSCADOR -->
+        <div class="flex items-center gap-6 lg:gap-10">
+            <a href="/" class="flex-cold shrink-0 group">
+                <img 
+                src="logo.PNG" 
+                class="h-14 md:h-16 w-auto object-contain transition-transform duration-200 group-hover:scale-105"
+             >
             </a>
-            <a href="arriendoespacios.html" class="inline-flex items-center justify-center bg-[#22B07D] text-white font-black uppercase tracking-wider text-center rounded-2xl px-4 sm:px-5 py-2.5 text-[11px] sm:text-xs whitespace-nowrap shadow-[0_3px_8px_rgba(34,176,125,0.30)] hover:shadow-md hover:bg-[#1d9c6f] transition duration-200 cursor-pointer">
+
+            <!-- BUSCADOR -->
+            
+        </div>
+        
+        <!-- LADO DERECHO: TEXTO TURQUESA Y BOTÓN/SESIÓN -->
+        <div class="flex items-center gap-6 text-sm font-semibold ml-auto">
+            <a href="#" class="text-teal-600 hover:text-teal-700 transition hidden sm:inline tracking-wide font-bold">
                 Arriendo de espacios
             </a>
+            
             <div id="contenedor-boton-sesion" class="flex items-center"></div>
         </div>
-    </header>
+    </nav>
 
-    <!-- HERO CAROUSEL -->
-    <header class="relative w-full aspect-[4/3] md:aspect-video overflow-hidden rounded-xl md:rounded-2xl bg-zinc-900">
+    <!-- CARRUSEL DESTACADO -->
+    <header class="relative w-full h-[500px] bg-zinc-900 overflow-hidden group">
         <div id="carousel-inner" class="relative w-full h-full">
             <div class="absolute inset-0 w-full h-full flex items-center justify-center text-white font-bold">
                 Cargando eventos destacados...
             </div>
         </div>
-        <!-- Flechas -->
-        <button id="prevBtn" class="absolute left-4 md:left-8 top-1/2 -translate-y-1/2 z-20 text-white/70 hover:text-white cursor-pointer transition-colors">
-            <svg class="w-8 h-8 md:w-10 md:h-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
-            </svg>
+
+        <button id="prevBtn" class="absolute top-0 left-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-40 hover:opacity-100 transition-opacity">
+            <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light hover:text-emerald-400">❮</span>
         </button>
-        <button id="nextBtn" class="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 z-20 text-white/70 hover:text-white cursor-pointer transition-colors">
-            <svg class="w-8 h-8 md:w-10 md:h-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-            </svg>
+
+        <button id="nextBtn" class="absolute top-0 right-0 z-20 flex items-center justify-center h-full px-4 cursor-pointer focus:outline-none opacity-40 hover:opacity-100 transition-opacity">
+            <span class="inline-flex items-center justify-center w-10 h-10 text-white text-3xl font-light hover:text-emerald-400">❯</span>
         </button>
     </header>
 
     <!-- SECCIONES DE CATEGORÍAS -->
-    <main id="categorias-search" class="max-w-7xl mx-auto px-6 py-12 space-y-16">
-
+    <main class="max-w-7xl mx-auto px-6 py-12 space-y-16">
+        
         <!-- SALUD MENTAL -->
         <section>
             <div class="flex items-center gap-3 mb-8">
-                <h2 class="text-2xl md:text-3xl font-black text-slate-900">Salud mental</h2>
-                <span class="rounded-full bg-[#A0E1C9] text-[#065F46] text-xs font-bold px-3 py-1 ml-3">MÁX 10 CUPOS</span>
+                <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Salud mental</h2>
+                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    Máx 10 cupos
+                </span>
             </div>
             <div id="grid-Salud mental" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
@@ -105,8 +90,10 @@
         <!-- ENTRETENIMIENTO -->
         <section>
             <div class="flex items-center gap-3 mb-8">
-                <h2 class="text-2xl md:text-3xl font-black text-slate-900">Entretenimiento</h2>
-                <span class="rounded-full bg-[#A0E1C9] text-[#065F46] text-xs font-bold px-3 py-1 ml-3">MÁX 10 CUPOS</span>
+                <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Entretenimiento</h2>
+                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    Máx 10 cupos
+                </span>
             </div>
             <div id="grid-Entretenimiento" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
@@ -114,8 +101,10 @@
         <!-- EDUCACIÓN -->
         <section>
             <div class="flex items-center gap-3 mb-8">
-                <h2 class="text-2xl md:text-3xl font-black text-slate-900">Educación</h2>
-                <span class="rounded-full bg-[#A0E1C9] text-[#065F46] text-xs font-bold px-3 py-1 ml-3">MÁX 10 CUPOS</span>
+                <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Educación</h2>
+                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    Máx 10 cupos
+                </span>
             </div>
             <div id="grid-Educación" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
@@ -123,8 +112,10 @@
         <!-- CULTURA -->
         <section>
             <div class="flex items-center gap-3 mb-8">
-                <h2 class="text-2xl md:text-3xl font-black text-slate-900">Cultura</h2>
-                <span class="rounded-full bg-[#A0E1C9] text-[#065F46] text-xs font-bold px-3 py-1 ml-3">MÁX 10 CUPOS</span>
+                <h2 class="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">Cultura</h2>
+                <span class="text-xs md:text-sm bg-emerald-100 text-emerald-800 border border-emerald-200/80 font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                    Máx 10 cupos
+                </span>
             </div>
             <div id="grid-Cultura" class="grid grid-cols-1 md:grid-cols-3 gap-8"></div>
         </section>
@@ -142,9 +133,10 @@
             <!-- BARRA DE FILTROS -->
             <div class="bg-zinc-900/90 p-4 rounded-2xl border border-zinc-800 flex flex-col lg:flex-row gap-4 items-center justify-between shadow-2xl backdrop-blur-sm">
                 <!-- Filtro Comuna -->
-                <div class="w-full lg:w-5/12 flex items-center gap-3 bg-zinc-950 px-4 py-3 rounded-xl border border-zinc-800 focus-within:border-[#26B488]/50 transition">
+                <div class="w-full lg:w-5/12 flex items-center gap-3 bg-zinc-950 px-4 py-3 rounded-xl border border-zinc-800 focus-within:border-emerald-500/50 transition">
+                    
                     <div class="w-full">
-                        <label class="block text-[10px] font-bold uppercase text-[#26B488] tracking-wider">Seleccionar comuna</label>
+                        <label class="block text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Seleccionar comuna</label>
                         <select id="filtro-comuna" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer">
                             <option value="todas" class="bg-zinc-900 text-white">Todas las comunas</option>
                             <option value="providencia" class="bg-zinc-900 text-white">Providencia</option>
@@ -158,19 +150,20 @@
                 </div>
 
                 <!-- Filtro Fecha -->
-                <div class="w-full lg:w-4/12 flex items-center gap-3 bg-zinc-950 px-4 py-3 rounded-xl border border-zinc-800 focus-within:border-[#26B488]/50 transition">
+                <div class="w-full lg:w-4/12 flex items-center gap-3 bg-zinc-950 px-4 py-3 rounded-xl border border-zinc-800 focus-within:border-emerald-500/50 transition">
+                    
                     <div class="w-full">
-                        <label class="block text-[10px] font-bold uppercase text-[#26B488] tracking-wider">Buscar por fecha</label>
+                        <label class="block text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Buscar por fecha</label>
                         <input type="date" id="filtro-fecha" onchange="aplicarFiltrosBusqueda()" class="w-full bg-transparent text-white font-semibold outline-none text-sm cursor-pointer [color-scheme:dark]">
                     </div>
                 </div>
 
-                <!-- Botones -->
+                <!-- Grupo de Botones: Buscar y Limpiar -->
                 <div class="w-full lg:w-auto flex flex-row gap-2.5 items-center justify-end">
-                    <button onclick="aplicarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-[#26B488] hover:bg-[#1FA078] text-white font-bold px-6 py-3 rounded-full transition-all duration-200 text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer shadow-md active:scale-95 flex items-center justify-center gap-2">
+                    <button onclick="aplicarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-zinc-950 font-black px-6 py-3.5 rounded-xl transition-all duration-200 text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2">
                         Buscar
                     </button>
-                    <button onclick="limpiarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold px-5 py-3 rounded-full transition text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer border border-zinc-700 flex items-center justify-center gap-2">
+                    <button onclick="limpiarFiltrosBusqueda()" class="w-full sm:w-auto flex-1 lg:flex-none bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold px-5 py-3.5 rounded-xl transition text-xs uppercase tracking-wider whitespace-nowrap cursor-pointer border border-zinc-700 flex items-center justify-center gap-2">
                         Limpiar
                     </button>
                 </div>
@@ -182,8 +175,8 @@
 
     <!-- MODAL INSCRIPCIÓN -->
     <div id="modal-inscripcion" class="fixed inset-0 z-[2000] hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div class="bg-gradient-to-r from-[#26B488] to-[#1FA078] px-6 py-5">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-[fadeIn_0.2s_ease]">
+            <div class="bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-5">
                 <div class="flex items-center justify-between">
                     <h3 class="text-white font-black text-lg">Recibe información del taller</h3>
                     <button onclick="cerrarModalInscripcion()" class="text-white/80 hover:text-white text-2xl font-bold leading-none cursor-pointer">&times;</button>
@@ -194,19 +187,19 @@
                 <input type="hidden" id="insc-evento-id">
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Nombre completo *</label>
-                    <input type="text" id="insc-nombre" required placeholder="Tu nombre" class="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-[#26B488] transition">
+                    <input type="text" id="insc-nombre" required placeholder="Tu nombre" class="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-emerald-400 transition">
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Celular *</label>
-                    <input type="tel" id="insc-celular" required placeholder="+569 1234 5678" class="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-[#26B488] transition">
+                    <input type="tel" id="insc-celular" required placeholder="+569 1234 5678" class="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-emerald-400 transition">
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Correo electrónico *</label>
-                    <input type="email" id="insc-correo" required placeholder="tu@correo.cl" class="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-[#26B488] transition">
+                    <input type="email" id="insc-correo" required placeholder="tu@correo.cl" class="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm outline-none focus:border-emerald-400 transition">
                 </div>
                 <div id="insc-error" class="text-red-500 text-xs font-semibold hidden"></div>
                 <div id="insc-exito" class="text-emerald-600 text-xs font-semibold hidden"></div>
-                <button type="submit" id="btn-inscribir" class="w-full bg-[#26B488] hover:bg-[#1FA078] text-white font-bold py-3 rounded-xl uppercase tracking-wider text-sm transition cursor-pointer shadow-md active:scale-95">
+                <button type="submit" id="btn-inscribir" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-xl uppercase tracking-wider text-sm transition cursor-pointer shadow-lg shadow-emerald-500/20">
                     Solicitar información
                 </button>
             </form>
@@ -215,6 +208,6 @@
 
     <!-- SCRIPTS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="app.js?v=2"></script>
+    <script src="app.js"></script>
 </body>
 </html>

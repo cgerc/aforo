@@ -11,6 +11,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Librería para forzar la descarga del PDF directamente en vez de imprimir -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        .pagina-entrada { page-break-before: always; break-before: page; }
+    </style>
     
 </head>
 <body class="bg-gray-50 min-h-screen p-4 sm:p-8 flex flex-col items-center justify-center">
@@ -126,7 +129,7 @@
                 ? `<a href="/ticket.html?ticket=${encodeURIComponent(e.token)}" target="_blank" class="text-xs text-emerald-600 underline font-semibold">Ver / descargar esta entrada</a>`
                 : '';
             return `
-                <div class="p-5 bg-zinc-50 rounded-xl flex flex-col items-center border border-zinc-100">
+                <div class="${num > 1 ? 'pagina-entrada ' : ''}p-5 bg-zinc-50 rounded-xl flex flex-col items-center border border-zinc-100">
                     <span class="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${usada ? 'text-red-500 bg-red-50' : 'text-emerald-600 bg-emerald-50'}">
                         Entrada ${total > 1 ? num + ' · ' : ''}${usada ? 'Usada' : 'Vigente'}
                     </span>
@@ -193,11 +196,13 @@
                 filename:     `Entrada_ViveTicket_${orderId || 'orden'}.pdf`,
                 image:        { type: 'jpeg', quality: 0.98 },
                 html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+                pagebreak:    { mode: ['css', 'legacy'], avoid: ['img', 'button'] },
                 jsPDF:        { unit: 'mm', format: 'a5', orientation: 'portrait' }
             };
 
             try {
-                // Genera y dispara la descarga en segundo plano sin abrir ventana de impresión
+                // Genera y dispara la descarga en segundo plano sin abrir ventana de impresión.
+                // Un elemento por página gracias a page-break-before (clase pagina-entrada).
                 await html2pdf().set(opciones).from(ticketElement).save();
             } catch (error) {
                 console.error('Error al generar PDF:', error);

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -13,7 +14,8 @@ import { Resend } from 'resend';
 import { initDb, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats, createTickets, getTicketsByOrder, getTicketByToken, getTicketByUuid, countPendingTickets, countTicketsByOrder, markTicketUsedAtomic } from './db.js';
 
 // Importar middleware de autenticación
-import { requireAuth } from './middleware/auth.js';
+import { requireAuth, usuarioEsDuenoDeEvento } from './middleware/auth.js';
+import { rateLimit, consumirBucket } from './middleware/rateLimit.js';
 
 // Importar rutas de autenticación
 import authRoutes from './routes/auth.js';
@@ -32,6 +34,70 @@ process.on('uncaughtException', (err) => {
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
+
+// [SEGURIDAD] Secretos obligatorios: NO hay fallbacks hardcodeados.
+// Sin JWT_SECRET el servidor no arranca (los tokens y QRs serían forjables).
+const JWT_SECRET = process.env.JWT_SECRET || '';
+const qrSecret = process.env.QR_SECRET || JWT_SECRET || '';
+
+if (!JWT_SECRET) {
+  console.error('[SEGURIDAD] Falta JWT_SECRET en .env. El servidor no puede arrancar sin secretos seguros.');
+  process.exit(1);
+}
+if (!qrSecret) {
+  console.error('[SEGURIDAD] Falta QR_SECRET/JWT_SECRET en .env. No se pueden emitir QRs seguros.');
+  process.exit(1);
+}
+
+// Token de acceso por orden (HMAC determinista, sin cambios de esquema).
+// Se entrega al comprador y protege QR/entradas/reenvío contra enumeración de IDs.
+function orderAccessToken(orderId) {
+  return crypto.createHmac('sha256', qrSecret).update(String(orderId)).digest('hex');
+}
+function orderAccessOk(orderId, provided) {
+  if (!provided) return false;
+  const expected = orderAccessToken(orderId);
+  const a = Buffer.from(String(provided));
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function tokenDeOrdenValido(order, token) {
+  if (!token || !order) return false;
+  if (order.qr_token && String(order.qr_token) === String(token)) return true;
+  try {
+    const decoded = jwt.verify(String(token), qrSecret);
+    return !!decoded && String(decoded.order_id) === String(order.id);
+  } catch (e) {
+    return false;
+  }
+}
+async function accesoOrdenPermitido(req, order, accessFromBodyOrQuery) {
+  const at = accessFromBodyOrQuery || req.query?.at || req.body?.at || req.get('x-order-access') || '';
+  if (orderAccessOk(order.id, at)) return true;
+
+  const authHeader = req.headers?.authorization || '';
+  if (authHeader.startsWith('Bearer ')) {
+    try {
+      const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+      if (decoded?.id && await usuarioEsDuenoDeEvento(decoded.id, order.taller_id)) return true;
+    } catch (_) {}
+  }
+
+  const tokenParam = req.query?.token || req.body?.token;
+  return tokenDeOrdenValido(order, tokenParam);
+}
+
+// Expiración de los QRs de entrada: fin del día del taller + 1 día.
+function calcularExpTicket(fechaTaller) {
+  let base = null;
+  if (fechaTaller) {
+    const d = new Date(String(fechaTaller).slice(0, 10) + 'T23:59:59');
+    if (!isNaN(d.getTime())) base = d;
+  }
+  if (!base) base = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  else base.setDate(base.getDate() + 1);
+  return Math.floor(base.getTime() / 1000);
+}
 
 // 1. Configuración de Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -61,11 +127,58 @@ if (mpAccessToken) {
 console.log('>>> [DEBUG] process.env.MERCADOPAGO_ACCESS_TOKEN:', process.env.MERCADOPAGO_ACCESS_TOKEN ? 'Existe' : 'No encontrado (undefined)');
 console.log('>>> [DEBUG] mpClient inicializado:', Boolean(mpClient));
 
+// [SEGURIDAD] Secreto del webhook de MP. Si no está configurado, el webhook continúa
+// confiando en el re-fetch del pago (C1); con él se valida X-Signature.
+const mpWebhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET || '';
+if (mpWebhookSecret) {
+  console.log('>>> Webhook de MP verificará firma X-Signature.');
+} else {
+  console.warn('⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado: el webhook de MP confía en el re-fetch del pago. Define el secreto en .env para validar X-Signature.');
+}
+
+function firmaWebhookValida(req) {
+  if (!mpWebhookSecret) return true;
+  const firma = String(req.get('x-signature') || '');
+  const requestId = String(req.get('x-request-id') || '');
+  const tsMatch = firma.match(/(?:^|;)ts=([^;]+)/);
+  const v1Match = firma.match(/(?:^|;)v1=([^;]+)/);
+  if (!tsMatch || !v1Match || !requestId) return false;
+  let dataId = '';
+  if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+    dataId = req.body?.data?.id ?? req.body?.id ?? '';
+  } else {
+    try {
+      const parseado = JSON.parse(req.body.toString());
+      dataId = parseado?.data?.id ?? parseado?.id ?? '';
+    } catch (e) {
+      dataId = req.query?.id || '';
+    }
+  }
+  const firmaString = `id:${dataId};request-id:${requestId};ts:${tsMatch[1]};`;
+  const esperada = crypto.createHmac('sha256', mpWebhookSecret).update(firmaString).digest('hex');
+  const a = Buffer.from(String(v1Match[1]));
+  const b = Buffer.from(esperada);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const sanitizeText = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, 200);
+};
+
+// [SEGURIDAD] Escapa HTML para interpolación en correos/HTML. No modifica el dato almacenado.
+const htmlEscape = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[ch]));
+
+// Redacta un correo en logs: solo local-part de 2 chars + dominio.
+const redactEmail = (email) => {
+  const s = String(email || '').trim();
+  if (!s.includes('@')) return '[oculto]';
+  const [local, dominio] = s.split('@');
+  return `${local.slice(0, 2)}***@${dominio}`;
 };
 
 const baseUrl = process.env.CLIENT_URL || 'https://viveticket.cl';
@@ -193,10 +306,74 @@ async function resolverTituloEvento(order) {
   return titulo;
 }
 
+// [SEGURIDAD] Lista de entradas + data-URL del QR (compartida por varios endpoints)
+async function entradasConQr(tickets, order) {
+  const entradas = [];
+  for (const t of tickets || []) {
+    entradas.push({
+      ticket_uuid: t.ticket_uuid,
+      token: t.token,
+      qr_data_url: await QRCode.toDataURL(t.token),
+      status: t.status,
+      used_at: t.used_at
+    });
+  }
+  if (entradas.length === 0 && order?.qr_token) {
+    entradas.push({
+      ticket_uuid: null,
+      token: order.qr_token,
+      qr_data_url: await QRCode.toDataURL(order.qr_token),
+      status: order.status,
+      used_at: null
+    });
+  }
+  return entradas;
+}
+
+// [SEGURIDAD] Verifica en Mercado Pago que exista un pago aprobado para esta orden.
+// Es la única prueba válida para marcar una orden como pagada sin el webhook.
+async function obtenerPagoAprobadoDeOrden(order) {
+  if (!mpClient || !order) return null;
+  try {
+    const payment = new Payment(mpClient);
+    const busqueda = await payment.search({
+      options: { external_reference: String(order.id), sort: 'date_created', criteria: 'desc', limit: 5 }
+    });
+    const results = busqueda?.results || [];
+    const aprobado = results.find(
+      (p) => String(p?.status || '').toLowerCase() === 'approved' && String(p?.external_reference ?? '') === String(order.id)
+    );
+    return aprobado || null;
+  } catch (e) {
+    console.warn('No se pudo verificar el pago en Mercado Pago:', e.message);
+    return null;
+  }
+}
+
 // Middlewares globales
+// [SEGURIDAD] Helmet con CSP desactivado a propósito: las páginas usan CDN de Tailwind
+// y scripts inline (ticket.html, confirmacion.html, index.html). El resto de headers se conserva.
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// [SEGURIDAD] CORS restrictivo: solo CLIENT_URL y localhost de desarrollo.
+const origenesPermitidos = [
+  (process.env.CLIENT_URL || 'https://viveticket.cl').replace(/\/+$/, ''),
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
+];
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || origenesPermitidos.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true
+}));
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ limit: '20mb', extended: true }));
-app.use(cors({ origin: true, credentials: true }));
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
@@ -221,25 +398,9 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// [SEGURIDAD] Health check sin filtrar estado interno (está públicamente expuesto).
 app.get('/health', async (req, res) => {
-  try {
-    const health = {
-      ok: true,
-      port,
-      time: new Date().toISOString(),
-      supabase: !!supabase,
-      mercadopago: !!mpClient,
-    };
-
-    if (supabase) {
-      const { error } = await supabase.from('usuarios').select('id').limit(1);
-      health.supabase = !error;
-    }
-
-    res.json(health);
-  } catch (error) {
-    res.status(500).json({ ok: false, error: 'Health check failed' });
-  }
+  res.json({ ok: true, uptime: Math.round(process.uptime()), time: new Date().toISOString() });
 });
 
 // INSCRIPCIÓN A TALLER - Enviar correo a contacto@viveticket.cl
@@ -278,19 +439,19 @@ app.post('/api/inscribir', async (req, res) => {
           <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
             <tr>
               <td style="padding: 8px; font-weight: bold; color: #374151;">Taller:</td>
-              <td style="padding: 8px; color: #111827;">${tituloEvento}</td>
+              <td style="padding: 8px; color: #111827;">${htmlEscape(tituloEvento)}</td>
             </tr>
             <tr style="background: #f3f4f6;">
               <td style="padding: 8px; font-weight: bold; color: #374151;">Nombre:</td>
-              <td style="padding: 8px; color: #111827;">${nombre}</td>
+              <td style="padding: 8px; color: #111827;">${htmlEscape(nombre)}</td>
             </tr>
             <tr>
               <td style="padding: 8px; font-weight: bold; color: #374151;">Celular:</td>
-              <td style="padding: 8px; color: #111827;">${celular}</td>
+              <td style="padding: 8px; color: #111827;">${htmlEscape(celular)}</td>
             </tr>
             <tr style="background: #f3f4f6;">
               <td style="padding: 8px; font-weight: bold; color: #374151;">Correo:</td>
-              <td style="padding: 8px; color: #111827;">${correo}</td>
+              <td style="padding: 8px; color: #111827;">${htmlEscape(correo)}</td>
             </tr>
           </table>
           <p style="margin-top: 20px; font-size: 12px; color: #9ca3af;">Mensaje enviado desde Vive Ticket — ${new Date().toLocaleString('es-CL')}</p>
@@ -335,8 +496,7 @@ app.get('/api/eventos', async (req, res) => {
       lat: evento.lat ?? null,
       lng: evento.lng ?? null,
       profesional_nombre: evento.profesional_nombre || '',
-      profesional_imagen: evento.profesional_imagen || null,
-      validador_token: evento.validador_token || null
+      profesional_imagen: evento.profesional_imagen || null
     }));
 
     return res.json(eventos);
@@ -595,7 +755,7 @@ app.get('/api/publicidad', async (req, res) => {
     const authHeader = req.headers?.authorization || '';
     if (authHeader.startsWith('Bearer ')) {
       try {
-        const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'supersecretlocal');
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
         usuarioId = decoded?.id ?? null;
       } catch (_) { usuarioId = null; }
     }
@@ -718,38 +878,51 @@ app.post('/api/create-preference', async (req, res) => {
   const taller_id = Number(req.body?.taller_id || req.body?.evento_id || req.body?.tallerId || req.body?.id || NaN);
   const tallerIdValido = Number.isInteger(taller_id) && taller_id > 0;
 
-  if (!titulo || !Number.isFinite(Number(precioUnitario)) || Number(precioUnitario) <= 0 || !Number.isFinite(Number(cantidad)) || Number(cantidad) <= 0) {
-    return res.status(400).json({ error: 'Datos de pago inválidos. Asegúrate de enviar título, precio unitario y cantidad.' });
-  }
-
   if (!tallerIdValido) {
     return res.status(400).json({ error: 'Falta el taller/evento vinculado a la compra (taller_id). No se puede generar una orden sin taller.' });
   }
+  if (!Number.isFinite(Number(cantidad)) || Number(cantidad) <= 0 || Number(cantidad) > 8) {
+    return res.status(400).json({ error: 'Cantidad inválida (máximo 8 entradas por compra).' });
+  }
 
-  let eventoExiste = true;
-  if (supabase) {
-    const { error: errEvento } = await supabase.from('eventos').select('id').eq('id', taller_id).maybeSingle();
-    if (errEvento) console.warn('No se pudo verificar el evento en Supabase:', errEvento.message);
-    eventoExiste = !errEvento;
-  }
-  if (eventoExiste && pool) {
-    try {
-      const resEvento = await pool.query('SELECT id FROM eventos WHERE id = $1 LIMIT 1', [taller_id]);
-      eventoExiste = resEvento.rowCount > 0;
-    } catch (e) {
-      console.warn('No se pudo verificar el evento en DB local pool:', e.message);
-    }
-  }
-  if (!eventoExiste) {
+  // [SEGURIDAD] Precio/cantidad/título SIEMPRE desde la base de datos, nunca del cliente.
+  const evento = await eventoLookup(taller_id);
+  if (!evento) {
     return res.status(404).json({ error: 'El taller/evento vinculado no existe. Verifica el evento seleccionado.' });
   }
 
+  const preciosValidos = Array.isArray(evento.categorias)
+    ? evento.categorias.map((c) => Number(c && c.precio)).filter((p) => Number.isFinite(p) && p > 0)
+    : [];
+  const precioEnviado = Number(precioUnitario);
+  if (preciosValidos.length === 0) {
+    return res.status(400).json({ error: 'El taller no tiene precios configurados.' });
+  }
+  if (!preciosValidos.includes(precioEnviado)) {
+    return res.status(400).json({ error: 'El precio enviado no corresponde al taller seleccionado.' });
+  }
+
+  const vendidos = Number(evento.tickets_vendidos) || 0;
+  const max = Number(evento.tickets_max) || 0;
+  const restantes = max > 0 ? Math.max(0, max - vendidos) : Infinity;
+  const cantidadFinal = Number(cantidad);
+  if (max > 0 && restantes <= 0) {
+    return res.status(409).json({ error: 'No quedan cupos disponibles para este taller.' });
+  }
+  if (cantidadFinal > restantes) {
+    return res.status(409).json({ error: `Solo quedan ${restantes} cupo(s) disponibles.` });
+  }
+
   const nombreComprador = sanitizeText(comprador?.nombre);
-  const emailComprador = sanitizeText(comprador?.email);
+  const emailComprador = (sanitizeText(comprador?.email) || '').toLowerCase();
   const whatsappComprador = sanitizeText(comprador?.whatsapp);
 
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!nombreComprador || !emailComprador) {
     return res.status(400).json({ error: 'Faltan datos del comprador.' });
+  }
+  if (!emailRegex.test(emailComprador)) {
+    return res.status(400).json({ error: 'El correo del comprador no es válido.' });
   }
 
   try {
@@ -758,7 +931,7 @@ app.post('/api/create-preference', async (req, res) => {
       order = await createOrder({ 
         user_id: user_id ? Number(user_id) : null, 
         taller_id: taller_id, 
-        cantidad: Number(cantidad) || 1, 
+        cantidad: cantidadFinal, 
         preference_id: null,
         email_comprador: emailComprador,
         nombre_comprador: nombreComprador
@@ -773,7 +946,7 @@ app.post('/api/create-preference', async (req, res) => {
         .insert([{
           user_id: user_id ? Number(user_id) : null,
           taller_id: taller_id,
-          cantidad: Number(cantidad) || 1,
+          cantidad: cantidadFinal,
           status: 'PENDIENTE',
           email_comprador: emailComprador || null,
           nombre_comprador: nombreComprador || null
@@ -789,6 +962,8 @@ app.post('/api/create-preference', async (req, res) => {
       throw new Error('No se pudo inicializar la orden en la base de datos.');
     }
 
+    const accessToken = orderAccessToken(order.id);
+
     const clientUrl = process.env.CLIENT_URL || `https://${req.get('host')}`;
     const webhookUrl = process.env.WEBHOOK_URL || null;
 
@@ -797,9 +972,9 @@ app.post('/api/create-preference', async (req, res) => {
       body: {
         items: [
           {
-            title: sanitizeText(titulo) || 'Entrada',
-            quantity: Number(cantidad),
-            unit_price: Number(precioUnitario),
+            title: sanitizeText(evento.titulo) || sanitizeText(titulo) || 'Entrada',
+            quantity: cantidadFinal,
+            unit_price: precioEnviado,
             currency_id: 'CLP',
           }
         ],
@@ -810,7 +985,7 @@ app.post('/api/create-preference', async (req, res) => {
         },
         external_reference: String(order.id),
         back_urls: {
-          success: `${clientUrl}/confirmacion.html?order_id=${order.id}`,
+          success: `${clientUrl}/confirmacion.html?order_id=${order.id}&at=${accessToken}`,
           failure: `${clientUrl}/checkout.html`,
           pending: `${clientUrl}/checkout.html`
         },
@@ -857,7 +1032,7 @@ app.post('/api/create-preference', async (req, res) => {
       }
     }
 
-    return res.status(200).json({ preference_id: preferenceResult.id, init_point: preferenceResult.init_point, order_id: order.id });
+    return res.status(200).json({ preference_id: preferenceResult.id, init_point: preferenceResult.init_point, order_id: order.id, access_token: accessToken, at: accessToken });
   } catch (error) {
     console.error('Error creando preferencia de Mercado Pago o guardando orden:', error);
     return res.status(500).json({ error: 'Error al crear la preferencia de pago' });
@@ -872,8 +1047,6 @@ async function processOrderPayment(orderId, tallerId, cantidad) {
   if (!tallerIdFinal) {
     console.error(`⚠️ Orden #${orderId} pagada sin taller_id: su QR no podrá validarse por taller. Revisa el flujo de compra.`);
   }
-
-  const qrSecret = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr_secret_change_me';
 
   // 1. Idempotencia: si la orden ya generó sus entradas, no volver a crearlas
   let entradasExistentes = 0;
@@ -912,13 +1085,14 @@ async function processOrderPayment(orderId, tallerId, cantidad) {
   //    así, aunque el webhook llegue dos veces, no se duplican entradas)
   if (flipped && entradasExistentes === 0) {
     const fechaTaller = await obtenerFechaEvento(tallerIdFinal);
+    const expSeg = calcularExpTicket(fechaTaller);
     const tokens = [];
     for (let i = 0; i < (Number(cantidad) || 1); i++) {
       const ticketUuid = crypto.randomUUID();
       tokens.push({
         ticket_uuid: ticketUuid,
         jwt: jwt.sign(
-          { ticket_id: ticketUuid, order_id: Number(orderId), taller_id: tallerIdFinal, fecha: fechaTaller },
+          { ticket_id: ticketUuid, order_id: Number(orderId), taller_id: tallerIdFinal, fecha: fechaTaller, exp: expSeg },
           qrSecret
         )
       });
@@ -1039,7 +1213,7 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
         `INSERT INTO envios_qr (order_id, qr_token, qr_archivo, email_to, titulo_evento) VALUES ($1, $2, $3, $4, $5)`,
         [orderId ? Number(orderId) : null, tickets[0].token, qrArchivo, destino, tituloEvento || null]
       );
-      console.log('🗄️ Referencia del envío registrada en envios_qr (order_id=' + orderId + ', email=' + destino + ')');
+      console.log('🗄️ Referencia del envío registrada en envios_qr (order_id=' + orderId + ', email=' + redactEmail(destino) + ')');
     }
     if (supabase && qrArchivo) {
       const { error } = await supabase.from('ordenes').update({ qr_archivo: qrArchivo }).eq('id', Number(orderId));
@@ -1055,7 +1229,7 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
   const html = `
     <div style="font-family: Arial, sans-serif; padding: 20px; background: #f9fafb; border-radius: 12px;">
       <h2 style="color: #10b981;">¡Pago confirmado!</h2>
-      <p style="color: #374151;">Hola ${sanitizeText(nombreComprador) || ''}, aquí ${plural === 'tu entrada' ? 'está tu entrada' : 'están tus entradas'} con código QR.</p>
+      <p style="color: #374151;">Hola ${htmlEscape(nombreComprador) || ''}, aquí ${plural === 'tu entrada' ? 'está tu entrada' : 'están tus entradas'} con código QR.</p>
       <p style="margin-top: 16px;">Cada QR va <strong>adjunto</strong> a este correo y también lo puedes abrir aquí debajo. Muéstralo en la entrada del taller para canjear tu cupo (cada QR se consume de forma individual).</p>
       <div style="margin-top: 16px; text-align: center;">${qrInline.join('')}</div>
       <p style="margin-top: 20px; font-size: 12px; color: #9ca3af;">Vive Ticket — ${new Date().toLocaleString('es-CL')}</p>
@@ -1065,20 +1239,20 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
   const intentarEnvio = () => resend.emails.send({
     from: 'Vive Ticket <contacto@viveticket.cl>',
     to: destino,
-    subject: `🎟️ Tu entrada - ${sanitizeText(tituloEvento) || 'Taller Vive Ticket'}`,
+    subject: `🎟️ Tu entrada - ${htmlEscape(tituloEvento) || 'Taller Vive Ticket'}`,
     html,
     attachments: adjuntos
   });
 
   try {
     await intentarEnvio();
-    console.log(`📨 QR(s) enviado(s) a ${destino} (order_id=` + orderId + ')');
+    console.log(`📨 QR(s) enviado(s) a ${redactEmail(destino)} (order_id=` + orderId + ')');
   } catch (e) {
     console.error('Error enviando correo con QR al comprador:', e.message);
     // Un reintento inmediato antes de rendirse
     try {
       await intentarEnvio();
-      console.log(`📨 QR(s) enviado(s) en reintento a ${destino} (order_id=` + orderId + ')');
+      console.log(`📨 QR(s) enviado(s) en reintento a ${redactEmail(destino)} (order_id=` + orderId + ')');
     } catch (e2) {
       console.error('❌ Reintento de envío de QR fallido:', e2.message);
     }
@@ -1091,28 +1265,54 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
     const { order_id, email, nombre_comprador } = req.body || {};
     if (!order_id) return res.status(400).json({ error: 'Falta order_id' });
 
+    const orderId = Number(order_id);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'order_id inválido' });
+    }
+
     let order = null;
     if (supabase) {
-      const { data } = await supabase.from('ordenes').select('*').eq('id', Number(order_id)).single();
+      const { data } = await supabase.from('ordenes').select('*').eq('id', orderId).single();
       order = data;
     }
 
     if (!order && pool) {
-      order = await getOrderById(Number(order_id));
+      order = await getOrderById(orderId);
     }
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
+    const accesoOrden = (await accesoOrdenPermitido(req, order, req.body?.at)) ||
+      Boolean(await obtenerPagoAprobadoDeOrden(order));
+
+    // [SEGURIDAD] C1: nunca marcar una orden como pagada sin prueba real de pago.
+    if (order.status === 'PENDIENTE') {
+      const pagoAprobado = await obtenerPagoAprobadoDeOrden(order);
+      if (!pagoAprobado) {
+        return res.status(403).json({ error: 'No se encontró un pago aprobado para esta orden. Si ya pagaste, espera unos segundos y vuelve a cargar.' });
+      }
+    }
+
     if (order.status === 'PAGADA') {
+      if (!accesoOrden) {
+        return res.status(403).json({ error: 'Acceso no autorizado a información de esta orden.' });
+      }
       const tickets = await leerEntradasOrden(order.id);
+      const entradas = await entradasConQr(tickets, order);
       return res.json({
         ok: true,
         message: 'La orden ya estaba registrada como PAGADA',
-        qr_token: (tickets && tickets[0]) ? tickets[0].token : (order.qr_token || null),
-        entradas: tickets || []
+        qr_token: (entradas && entradas[0]) ? entradas[0].token : (order.qr_token || null),
+        at: orderAccessToken(order.id),
+        entradas
       });
     }
 
+    if (order.status === 'USADA') {
+      return res.status(409).json({ error: 'La orden ya fue utilizada.' });
+    }
+
+    // Solo se llega aquí con un pago aprobado verificado en Mercado Pago.
     const resultado = await processOrderPayment(order.id, order.taller_id, order.cantidad);
     const emailEnvio = sanitizeText(order?.email_comprador) || sanitizeText(email) || sanitizeText(order?.email) || '';
     if (emailEnvio) {
@@ -1125,7 +1325,8 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
         tituloEvento: await resolverTituloEvento(order)
       });
     }
-    return res.json({ ok: true, qr_token: resultado.token, entradas: resultado.tickets });
+    const entradas = await entradasConQr(resultado.tickets, order);
+    return res.json({ ok: true, qr_token: resultado.token, at: orderAccessToken(order.id), entradas });
   } catch (err) {
     console.error('Error confirmando pago desde frontend:', err);
     return res.status(500).json({ error: 'Error interno procesando la confirmación' });
@@ -1137,6 +1338,11 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
   try {
     if (!mpClient) {
       return res.status(503).json({ ok: false, error: 'Mercado Pago no está configurado.' });
+    }
+
+    // [SEGURIDAD] Validar firma X-Signature cuando el secreto está configurado.
+    if (!firmaWebhookValida(req)) {
+      return res.status(401).json({ ok: false, error: 'Firma de webhook inválida.' });
     }
 
     let body;
@@ -1212,30 +1418,24 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
 });
 
 // Obtener QR/token de la orden (multi-entrada; conserva compat con qr_data_url único)
-app.get('/api/orders/:id/qr', async (req, res) => {
+app.get('/api/orders/:id/qr',
+  rateLimit({ windowMs: 60 * 1000, max: 60, keyFn: (req) => `qr:${req.ip || 'x'}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
-    const order = await ordenLookup(Number(id));
+    const orderId = Number(id);
+    if (!Number.isInteger(orderId) || orderId <= 0) return res.status(400).json({ error: 'ID inválido' });
+    const order = await ordenLookup(orderId);
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
     if (order.status !== 'PAGADA') return res.status(403).json({ error: 'Orden no está pagada' });
 
-    const tickets = await leerEntradasOrden(Number(id));
-    const entradas = [];
-    for (const t of tickets) {
-      entradas.push({
-        ticket_uuid: t.ticket_uuid,
-        token: t.token,
-        qr_data_url: await QRCode.toDataURL(t.token),
-        status: t.status,
-        used_at: t.used_at
-      });
-    }
+    // [SEGURIDAD] A1: acceso solo con token HMAC de la orden, JWT de organizador dueño, o QR válido.
+    const autorizado = await accesoOrdenPermitido(req, order, null);
+    if (!autorizado) return res.status(403).json({ error: 'Acceso no autorizado a esta orden. Usa el enlace enviado por correo.' });
 
-    if (entradas.length === 0 && order.qr_token) {
-      const qrDataUrl = await QRCode.toDataURL(order.qr_token);
-      return res.json({ qr_token: order.qr_token, qr_data_url: qrDataUrl, entradas: [] });
-    }
+    const entradas = await entradasConQr(await leerEntradasOrden(orderId), order);
+
     if (entradas.length === 0) return res.status(404).json({ error: 'QR no disponible' });
 
     return res.json({
@@ -1250,36 +1450,24 @@ app.get('/api/orders/:id/qr', async (req, res) => {
 });
 
 // Listar todas las entradas (QR) de una orden pagada
-app.get('/api/orders/:id/entradas', async (req, res) => {
+app.get('/api/orders/:id/entradas',
+  rateLimit({ windowMs: 60 * 1000, max: 60, keyFn: (req) => `entradas:${req.ip || 'x'}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
-    const order = await ordenLookup(Number(id));
+    const orderId = Number(id);
+    if (!Number.isInteger(orderId) || orderId <= 0) return res.status(400).json({ error: 'ID inválido' });
+    const order = await ordenLookup(orderId);
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
     if (order.status !== 'PAGADA') return res.status(403).json({ error: 'Orden no está pagada' });
 
-    const tickets = await leerEntradasOrden(Number(id));
-    const entradas = [];
-    for (const t of tickets) {
-      entradas.push({
-        ticket_uuid: t.ticket_uuid,
-        token: t.token,
-        qr_data_url: await QRCode.toDataURL(t.token),
-        status: t.status,
-        used_at: t.used_at
-      });
-    }
+    // [SEGURIDAD] A1: mismo control de acceso que /qr.
+    const autorizado = await accesoOrdenPermitido(req, order, null);
+    if (!autorizado) return res.status(403).json({ error: 'Acceso no autorizado a esta orden.' });
 
-    if (entradas.length === 0 && order.qr_token) {
-      entradas.push({
-        ticket_uuid: null,
-        token: order.qr_token,
-        qr_data_url: await QRCode.toDataURL(order.qr_token),
-        status: order.status,
-        used_at: null
-      });
-    }
+    const entradas = await entradasConQr(await leerEntradasOrden(orderId), order);
 
-    return res.json({ ok: true, order_id: Number(id), cantidad: Number(order.cantidad) || 1, entradas });
+    return res.json({ ok: true, order_id: orderId, cantidad: Number(order.cantidad) || 1, entradas });
   } catch (err) {
     console.error('Error listando entradas:', err);
     return res.status(500).json({ error: 'Error interno' });
@@ -1338,16 +1526,25 @@ app.get('/api/entradas/:token', async (req, res) => {
 });
 
 // Reenviar correo con el/los QR al comprador (panel del comprador)
-app.post('/api/orders/:id/re-enviar-qr', async (req, res) => {
+// [SEGURIDAD] A4: limite estricto por orden para evitar abuso de reenvío.
+app.post('/api/orders/:id/re-enviar-qr',
+  rateLimit({ windowMs: 15 * 60 * 1000, max: 4, keyFn: (req) => `reenvio:${req.params.id}:${req.ip || 'x'}` }),
+  async (req, res) => {
   try {
     const { id } = req.params;
+    const orderId = Number(id);
+    if (!Number.isInteger(orderId) || orderId <= 0) return res.status(400).json({ error: 'ID inválido' });
     const { email, nombre_comprador } = req.body || {};
-    const order = await ordenLookup(Number(id));
+    const order = await ordenLookup(orderId);
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
     if (order.status !== 'PAGADA') return res.status(403).json({ error: 'La orden no está pagada' });
 
-    const tickets = await leerEntradasOrden(Number(id));
+    // [SEGURIDAD] A1: mismo control de acceso (HMAC/JWT/QR válido).
+    const autorizado = await accesoOrdenPermitido(req, order, req.body?.at);
+    if (!autorizado) return res.status(403).json({ error: 'Acceso no autorizado a esta orden.' });
+
+    const tickets = await leerEntradasOrden(orderId);
     if (tickets.length === 0 && !order.qr_token) {
       return res.status(404).json({ error: 'No hay QR disponible para esta orden' });
     }
@@ -1382,7 +1579,7 @@ app.get('/api/validador/info/:token', async (req, res) => {
     const esUUID = String(token).includes('-');
 
     if (supabase) {
-      const query = supabase.from('eventos').select('id, titulo, fecha, comuna');
+      const query = supabase.from('eventos').select('id, titulo, fecha, comuna, validador_token');
       const { data } = esUUID 
         ? await query.eq('validador_token', token).single()
         : await query.eq('id', Number(token)).single();
@@ -1391,8 +1588,8 @@ app.get('/api/validador/info/:token', async (req, res) => {
 
     if (!evento && pool) {
       const sql = esUUID 
-        ? 'SELECT id, titulo, fecha, comuna FROM eventos WHERE validador_token = $1'
-        : 'SELECT id, titulo, fecha, comuna FROM eventos WHERE id = $1';
+        ? 'SELECT id, titulo, fecha, comuna, validador_token FROM eventos WHERE validador_token = $1'
+        : 'SELECT id, titulo, fecha, comuna, validador_token FROM eventos WHERE id = $1';
       const result = await pool.query(sql, [token]);
       if (result.rowCount > 0) evento = result.rows[0];
     }
@@ -1401,7 +1598,13 @@ app.get('/api/validador/info/:token', async (req, res) => {
       return res.status(404).json({ error: 'Evento no encontrado o token inválido' });
     }
 
-    return res.json({ ok: true, evento });
+    // [SEGURIDAD] A3: por ID numérico solo se permite en eventos legacy SIN enlace protegido.
+    if (!esUUID && evento.validador_token) {
+      return res.status(403).json({ error: 'Este evento usa un enlace de validador protegido. Usa el enlace con token.' });
+    }
+
+    const { validador_token, ...dataPublica } = evento;
+    return res.json({ ok: true, evento: dataPublica });
   } catch (error) {
     console.error('Error obteniendo info del validador:', error);
     return res.status(500).json({ error: 'Error interno del servidor' });
@@ -1409,7 +1612,9 @@ app.get('/api/validador/info/:token', async (req, res) => {
 });
 
 // VALIDAR CÓDIGO QR ESCANEADO DESDE VALIDADOR.HTML
-app.post('/api/validador/scan', async (req, res) => {
+app.post('/api/validador/scan',
+  rateLimit({ windowMs: 60 * 1000, max: 30, keyFn: (req) => `scan:${req.ip || 'x'}` }),
+  async (req, res) => {
   try {
     const { qr_token, organizador_token, taller_id_actual } = req.body;
     const tokenRecibido = organizador_token || taller_id_actual;
@@ -1418,12 +1623,12 @@ app.post('/api/validador/scan', async (req, res) => {
       return res.status(400).json({ valid: false, message: 'Faltan datos para validar.' });
     }
 
-    const qrSecret = process.env.QR_SECRET || process.env.JWT_SECRET || 'qr_secret_change_me';
+    const qrSecretUsado = qrSecret;
 
     // 1. Desencriptar el token JWT del QR
     let decoded;
     try {
-      decoded = jwt.verify(qr_token, qrSecret);
+      decoded = jwt.verify(qr_token, qrSecretUsado);
     } catch (err) {
       return res.status(401).json({ valid: false, message: 'Código QR inválido o falsificado.' });
     }
@@ -1436,17 +1641,24 @@ app.post('/api/validador/scan', async (req, res) => {
       if (supabase) {
         const { data: eventoData } = await supabase
           .from('eventos')
-          .select('id, titulo')
+          .select('id, titulo, validador_token')
           .eq('validador_token', tokenRecibido)
           .single();
         if (eventoData) eventoIdAutorizado = eventoData.id;
       }
       if (!eventoIdAutorizado && pool) {
-        const result = await pool.query('SELECT id, titulo FROM eventos WHERE validador_token = $1', [tokenRecibido]);
+        const result = await pool.query('SELECT id, titulo, validador_token FROM eventos WHERE validador_token = $1', [tokenRecibido]);
         if (result.rowCount > 0) eventoIdAutorizado = result.rows[0].id;
       }
     } else {
-      eventoIdAutorizado = Number(tokenRecibido);
+      // [SEGURIDAD] A3: un ID numérico solo es válido para eventos legacy SIN enlace protegido.
+      const eventoNumerico = await eventoLookup(Number(tokenRecibido));
+      if (eventoNumerico) {
+        if (eventoNumerico.validador_token) {
+          return res.status(403).json({ valid: false, message: 'Este evento usa un enlace de validador protegido. Usa el enlace con token.' });
+        }
+        eventoIdAutorizado = Number(eventoNumerico.id);
+      }
     }
 
     if (!eventoIdAutorizado) {

@@ -50,6 +50,15 @@
         const params = new URLSearchParams(window.location.search);
         const orderId = params.get('order_id') || params.get('external_reference');
 
+        // [SEGURIDAD] Token de acceso a la orden: desde la URL (back_url de MP) o memoria.
+        let accessToken = params.get('at') || localStorage.getItem('orden_at_' + (orderId || '')) || '';
+
+        function headersOrden(extra) {
+            const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
+            if (accessToken) h['X-Order-Access'] = accessToken;
+            return h;
+        }
+
         // Datos del comprador guardados por checkout.html (para el reenvío del QR)
         let compradorGuardado = { nombre: '', email: '' };
         try {
@@ -70,18 +79,23 @@
 
             try {
                 // 1. Confirmación de respaldo por si el Webhook no ha finalizado
-                await fetch('/api/orders/confirm-payment', {
+                const rConfirm = await fetch('/api/orders/confirm-payment', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headersOrden(),
                     body: JSON.stringify({
                         order_id: orderId,
                         email: compradorGuardado.email || undefined,
                         nombre_comprador: compradorGuardado.nombre || undefined
                     })
                 });
+                const dataConfirm = await rConfirm.json();
+                if (dataConfirm && dataConfirm.at) {
+                    accessToken = dataConfirm.at;
+                    localStorage.setItem('orden_at_' + orderId, dataConfirm.at);
+                }
 
                 // 2. Obtener todas las entradas (uno o varios QR por compra)
-                const res = await fetch(`/api/orders/${orderId}/entradas`);
+                const res = await fetch(`/api/orders/${orderId}/entradas`, { headers: headersOrden() });
                 const data = await res.json();
                 const entradas = (data && data.entradas) || [];
                 const cargando = document.getElementById('loading-text');
@@ -147,7 +161,7 @@
             try {
                 const res = await fetch(`/api/orders/${orderId}/re-enviar-qr`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headersOrden(),
                     body: JSON.stringify({ email, nombre_comprador: compradorGuardado.nombre })
                 });
                 const data = await res.json();

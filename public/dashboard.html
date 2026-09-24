@@ -206,8 +206,9 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-2">
                     <label class="text-sm font-bold text-gray-700 block">Imagen de publicidad *</label>
+                    <p class="text-xs text-gray-400 mt-1">Formato horizontal 16:9 recomendado (1920×1080 px, o 1920×600 px para banner panorámico).</p>
                     <input type="file" id="pub-archivo" accept="image/*" class="border p-2.5 rounded-xl w-full bg-gray-50">
-                    <img id="pub-preview" class="hidden w-full max-h-48 object-cover rounded-xl border" alt="Vista previa publicidad">
+                    <img id="pub-preview" class="hidden w-full aspect-video object-cover object-center rounded-xl border bg-zinc-900" alt="Vista previa publicidad">
                 </div>
                 <div class="space-y-2">
                     <label class="text-sm font-bold text-gray-700 block">Título (opcional)</label>
@@ -600,8 +601,8 @@
         document.getElementById('pub-archivo').addEventListener('change', function () {
             const preview = document.getElementById('pub-preview');
             if (this.files && this.files[0]) {
-                convertirArchivoABase64(this.files[0]).then(base64 => {
-                    preview.src = base64;
+                convertirArchivoABase64(this.files[0]).then(async base64 => {
+                    preview.src = await comprimirImagenBase64(base64, 1920, 0.85);
                     preview.classList.remove('hidden');
                 }).catch(e => console.error('Error leyendo imagen:', e));
             } else {
@@ -619,7 +620,7 @@
                 return;
             }
 
-            const imagen = await comprimirImagenBase64(await convertirArchivoABase64(archivoInput.files[0]));
+            const imagen = await comprimirImagenBase64(await convertirArchivoABase64(archivoInput.files[0]), 1920, 0.85);
             const titulo = document.getElementById('pub-titulo').value.trim();
             const enlace = document.getElementById('pub-enlace').value.trim();
 
@@ -673,7 +674,7 @@
 
                 contenedor.innerHTML = activas.map(p => `
                     <div class="border rounded-xl overflow-hidden bg-gray-50">
-                        <img src="${p.imagen || ''}" class="w-full h-28 object-cover" alt="${(p.titulo || 'Publicidad').replace(/"/g, '&quot;')}">
+                        <img src="${p.imagen || ''}" class="w-full aspect-video object-cover object-center" alt="${(p.titulo || 'Publicidad').replace(/"/g, '&quot;')}">
                         <div class="p-3 space-y-2">
                             <p class="text-sm font-bold text-gray-800 truncate">${(p.titulo || 'Publicidad').replace(/</g, '&lt;')}</p>
                             ${p.enlace ? `<p class="text-xs text-gray-500 truncate">🔗 ${p.enlace}</p>` : ''}

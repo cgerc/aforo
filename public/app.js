@@ -331,7 +331,7 @@ container.innerHTML = '';
 
             slidePub.innerHTML = `
 
-                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-contain object-center" alt="${ev.titulo || 'Publicidad'}">
+                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${ev.titulo || 'Publicidad'}">
 
             `;
 

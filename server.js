@@ -1168,7 +1168,7 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
 
       adjuntos.push({
         filename: `entrada-${num}.png`,
-        content: png,
+        content: png.toString('base64'),
         contentType: 'image/png'
       });
       qrInline.push(`
@@ -1245,13 +1245,21 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
   });
 
   try {
-    await intentarEnvio();
+    const enviado = await intentarEnvio();
+    if (enviado?.error) {
+      console.error('Resend devolvió error al enviar QR (order_id=' + orderId + '):', enviado.error?.message || JSON.stringify(enviado.error));
+      return;
+    }
     console.log(`📨 QR(s) enviado(s) a ${redactEmail(destino)} (order_id=` + orderId + ')');
   } catch (e) {
     console.error('Error enviando correo con QR al comprador:', e.message);
     // Un reintento inmediato antes de rendirse
     try {
-      await intentarEnvio();
+      const reenviado = await intentarEnvio();
+      if (reenviado?.error) {
+        console.error('Resend devolvió error en reintento de QR (order_id=' + orderId + '):', reenviado.error?.message || JSON.stringify(reenviado.error));
+        return;
+      }
       console.log(`📨 QR(s) enviado(s) en reintento a ${redactEmail(destino)} (order_id=` + orderId + ')');
     } catch (e2) {
       console.error('❌ Reintento de envío de QR fallido:', e2.message);
@@ -1348,41 +1356,85 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
     let body;
     try { body = JSON.parse(req.body.toString()); } catch (e) { body = req.body; }
 
-    // [MP] Detectar el tipo de evento: solo procesar notificaciones de pago
-    // (topic/type='payment', action='payment.created|updated'). Otros eventos
-    // (ej. 'merchant_order') se acusan con 200 para evitar reintentos de MP.
+    // [MP] Detectar el tipo de evento. Procesamos notificaciones de pago y de
+    // merchant_order (Checkout Pro suele notificar SOLO merchant_order, por eso
+    // ya no se ignora: se consulta la orden en MP para verificar el Pago).
     const tipoQuery = String(req.query?.topic || req.query?.type || '').toLowerCase();
     const tipoBody = String(body?.topic || body?.type || '').toLowerCase();
     const accion = String(body?.action || '').toLowerCase();
-    const sinTipo = !tipoQuery && !tipoBody && !accion;
-    const esPago = sinTipo || tipoQuery.includes('payment') || tipoBody.includes('payment') || accion.startsWith('payment');
+    const esPayment = tipoQuery.includes('payment') || tipoBody.includes('payment') || accion.startsWith('payment');
+    const esMerchantOrder = tipoQuery.includes('merchant_order') || tipoBody.includes('merchant_order') || accion.includes('merchant_order');
 
-    if (!esPago) {
+    if (!esPayment && !esMerchantOrder) {
       console.warn('Webhook ignorado (evento no de pago):', tipoQuery || tipoBody || accion);
       return res.status(200).json({ ok: true, message: 'Evento ignorado' });
     }
 
-    const paymentId = body?.data?.id || body?.id || req.query?.id || req.query?.['data.id'] || null;
+    const eventId = body?.data?.id || body?.id || req.query?.id || req.query?.['data.id'] || null;
 
-    if (!paymentId) {
-      return res.status(400).json({ ok: false, error: 'No se encontró id de pago en la notificación' });
+    if (!eventId) {
+      return res.status(400).json({ ok: false, error: 'No se encontró id en la notificación' });
     }
 
-    let payment;
-    try {
-      const paymentInstance = new Payment(mpClient);
-      payment = await paymentInstance.get({ id: paymentId });
-    } catch (err) {
-      const msgPay = String(err?.message || err || '');
-      if (err?.status === 404 || /payment not found/i.test(msgPay)) {
-        console.warn('Pago no encontrado; se acusa recibo para evitar reintentos:', paymentId);
-        return res.status(200).json({ ok: true, message: 'Pago no encontrado' });
+    let status = '';
+    let externalRef = null;
+    let prefId = null;
+    let metaEmail = '';
+    let metaNombre = '';
+    let metaTitulo = '';
+
+    if (esMerchantOrder) {
+      // Consultar la orden de MP para extraer el id interno (external_reference)
+      // y saber si ya hay un Pago aprobado.
+      let mo;
+      try {
+        const resp = await fetch(`https://api.mercadopago.com/merchant_orders/${eventId}`, {
+          headers: { Authorization: `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN}` }
+        });
+        if (resp.status === 404) {
+          console.warn('Merchant order no encontrada; se acusa recibo para evitar reintentos:', eventId);
+          return res.status(200).json({ ok: true, message: 'Merchant order no encontrada' });
+        }
+        if (!resp.ok) {
+          const detalle = (await resp.text()).slice(0, 200);
+          console.warn('Error consultando merchant_order en MP (se acusa recibo):', resp.status, detalle);
+          return res.status(200).json({ ok: true, message: 'Merchant order consultada sin éxito' });
+        }
+        mo = await resp.json();
+      } catch (err) {
+        console.warn('Error de red consultando merchant_order (se acusa recibo):', err.message);
+        return res.status(200).json({ ok: true, message: 'Merchant order consultada' });
       }
-      throw err;
-    }
-    const status = (payment?.status || payment?.collection?.status || '').toString().toLowerCase();
 
-    const externalRef = (payment?.external_reference) || (payment?.order?.external_reference) || (payment?.collection?.external_reference) || (payment?.preference_id) || (payment?.collection?.preference_id) || null;
+      const pagosAprobados = (mo?.payments || []).filter(
+        (p) => String(p?.status || '').toLowerCase() === 'approved'
+      );
+      status = pagosAprobados.length > 0 ? 'approved' : (String(mo?.status || '')).toLowerCase();
+      externalRef = mo?.external_reference || null;
+      prefId = mo?.preference_id || null;
+      if (pagosAprobados.length > 0 && pagosAprobados[0]?.external_reference) {
+        externalRef = pagosAprobados[0].external_reference || externalRef;
+      }
+    } else {
+      let payment;
+      try {
+        const paymentInstance = new Payment(mpClient);
+        payment = await paymentInstance.get({ id: eventId });
+      } catch (err) {
+        const msgPay = String(err?.message || err || '');
+        if (err?.status === 404 || /payment not found/i.test(msgPay)) {
+          console.warn('Pago no encontrado; se acusa recibo para evitar reintentos:', eventId);
+          return res.status(200).json({ ok: true, message: 'Pago no encontrado' });
+        }
+        throw err;
+      }
+      status = (payment?.status || payment?.collection?.status || '').toString().toLowerCase();
+      externalRef = (payment?.external_reference) || (payment?.order?.external_reference) || (payment?.collection?.external_reference) || externalRef;
+      prefId = (payment?.preference_id) || (payment?.collection?.preference_id) || null;
+      metaEmail = sanitizeText((payment?.metadata?.email_comprador) || (payment?.payer?.email) || '');
+      metaNombre = sanitizeText((payment?.metadata?.nombre_comprador) || (payment?.payer?.first_name) || '');
+      metaTitulo = sanitizeText((payment?.metadata?.titulo_evento) || '');
+    }
 
     let order = null;
     if (externalRef && /^\d+$/.test(String(externalRef))) {
@@ -1395,21 +1447,18 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       }
     }
 
-    if (!order) {
-      const prefId = (payment?.preference_id) || (payment?.collection?.preference_id) || null;
-      if (prefId) {
-        if (supabase) {
-          const { data } = await supabase.from('ordenes').select('*').eq('preference_id', prefId).single();
-          order = data;
-        }
-        if (!order && pool) {
-          order = await getOrderByPreference(prefId);
-        }
+    if (!order && prefId) {
+      if (supabase) {
+        const { data } = await supabase.from('ordenes').select('*').eq('preference_id', prefId).single();
+        order = data;
+      }
+      if (!order && pool) {
+        order = await getOrderByPreference(prefId);
       }
     }
 
     if (!order) {
-      return res.status(404).json({ ok: false, error: 'Orden no encontrada' });
+      return res.status(200).json({ ok: true, message: 'Orden no encontrada aún' });
     }
 
     if (status === 'approved') {
@@ -1418,11 +1467,9 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       }
 
       const resultado = await processOrderPayment(order.id, order.taller_id, order.cantidad);
-      const emailCompradorPago = sanitizeText(order?.email_comprador)
-        || sanitizeText((payment?.metadata?.email_comprador) || (payment?.payer?.email) || '');
-      const nombreCompradorPago = sanitizeText(order?.nombre_comprador)
-        || sanitizeText((payment?.metadata?.nombre_comprador) || (payment?.payer?.first_name) || '');
-      const tituloEventoWebhook = sanitizeText((payment?.metadata?.titulo_evento) || '') || await resolverTituloEvento(order);
+      const emailCompradorPago = sanitizeText(order?.email_comprador) || metaEmail;
+      const nombreCompradorPago = sanitizeText(order?.nombre_comprador) || metaNombre;
+      const tituloEventoWebhook = metaTitulo || await resolverTituloEvento(order);
       await enviarQRAlComprador({
         orderId: order.id,
         tickets: resultado.tickets,

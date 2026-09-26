@@ -1348,14 +1348,38 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
     let body;
     try { body = JSON.parse(req.body.toString()); } catch (e) { body = req.body; }
 
+    // [MP] Detectar el tipo de evento: solo procesar notificaciones de pago
+    // (topic/type='payment', action='payment.created|updated'). Otros eventos
+    // (ej. 'merchant_order') se acusan con 200 para evitar reintentos de MP.
+    const tipoQuery = String(req.query?.topic || req.query?.type || '').toLowerCase();
+    const tipoBody = String(body?.topic || body?.type || '').toLowerCase();
+    const accion = String(body?.action || '').toLowerCase();
+    const sinTipo = !tipoQuery && !tipoBody && !accion;
+    const esPago = sinTipo || tipoQuery.includes('payment') || tipoBody.includes('payment') || accion.startsWith('payment');
+
+    if (!esPago) {
+      console.warn('Webhook ignorado (evento no de pago):', tipoQuery || tipoBody || accion);
+      return res.status(200).json({ ok: true, message: 'Evento ignorado' });
+    }
+
     const paymentId = body?.data?.id || body?.id || req.query?.id || req.query?.['data.id'] || null;
 
     if (!paymentId) {
       return res.status(400).json({ ok: false, error: 'No se encontró id de pago en la notificación' });
     }
 
-    const paymentInstance = new Payment(mpClient);
-    const payment = await paymentInstance.get({ id: paymentId });
+    let payment;
+    try {
+      const paymentInstance = new Payment(mpClient);
+      payment = await paymentInstance.get({ id: paymentId });
+    } catch (err) {
+      const msgPay = String(err?.message || err || '');
+      if (err?.status === 404 || /payment not found/i.test(msgPay)) {
+        console.warn('Pago no encontrado; se acusa recibo para evitar reintentos:', paymentId);
+        return res.status(200).json({ ok: true, message: 'Pago no encontrado' });
+      }
+      throw err;
+    }
     const status = (payment?.status || payment?.collection?.status || '').toString().toLowerCase();
 
     const externalRef = (payment?.external_reference) || (payment?.order?.external_reference) || (payment?.collection?.external_reference) || (payment?.preference_id) || (payment?.collection?.preference_id) || null;

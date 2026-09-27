@@ -3,7 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
-import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
@@ -162,6 +161,11 @@ function firmaWebhookValida(req) {
 }
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// [RESEND] Log de configuración al arrancar para detectar rápidamente
+// ausencia de API key o un remitente que no coincida con el dominio verificado.
+console.log('>>> [DEBUG] RESEND_API_KEY:', process.env.RESEND_API_KEY ? 'Configurada' : 'NO configurada');
+console.log('>>> [DEBUG] REMITENTE de correos (RESEND_FROM):', process.env.RESEND_FROM || 'Vive Ticket <contacto@viveticket.cl> (default)');
 
 const sanitizeText = (value) => {
   if (typeof value !== 'string') return '';
@@ -1134,14 +1138,47 @@ async function processOrderPayment(orderId, tallerId, cantidad) {
   return { token: tickets && tickets.length > 0 ? tickets[0].token : null, tickets: tickets || [] };
 }
 
+// [SEGURIDAD/UX] Resuelve el correo del comprador con varios orígenes, en orden:
+// 1) orden (email_comprador / email), 2) fuente del pago (payer/metadata de MP o
+// merchant_order), 3) el usuario registrado asociado a la orden (Supabase -> pool).
+async function resolverEmailComprador(order, fuente = null) {
+  const candidatos = [
+    order?.email_comprador,
+    order?.email,
+    fuente?.payer?.email,
+    fuente?.metadata?.email_comprador,
+    fuente?.buyer?.email,
+    fuente?.collector?.email
+  ];
+  for (const c of candidatos) {
+    const v = typeof c === 'string' ? c.trim() : '';
+    if (v && /\S+@\S+\.\S+/.test(v)) return v;
+  }
+  if (order?.user_id) {
+    try {
+      if (supabase) {
+        const { data } = await supabase.from('usuarios').select('email').eq('id', Number(order.user_id)).maybeSingle();
+        const v = typeof data?.email === 'string' ? data.email.trim() : '';
+        if (v && /\S+@\S+\.\S+/.test(v)) return v;
+      }
+    } catch (e) { /* seguir a pool */ }
+    try {
+      const r = await pool.query('SELECT email FROM usuarios WHERE id = $1 LIMIT 1', [Number(order.user_id)]);
+      const v = typeof r?.rows?.[0]?.email === 'string' ? r.rows[0].email.trim() : '';
+      if (v && /\S+@\S+\.\S+/.test(v)) return v;
+    } catch (e) { /* sin pool */ }
+  }
+  return '';
+}
+
 async function enviarQRAlComprador({ orderId = null, tickets = [], token = null, email, nombreComprador, tituloEvento }) {
   const destino = typeof email === 'string' && /\S+@\S+\.\S+/.test(email.trim()) ? email.trim() : null;
   if (!destino) {
-    console.warn('⚠️ No se pudo enviar QR por correo: falta email del comprador (registrado con el pago).');
+    console.error('❌ No se pudo enviar QR por correo: falta email del comprador (order_id=' + orderId + ').');
     return;
   }
   if (!process.env.RESEND_API_KEY) {
-    console.error('❌ No se envió el correo: falta RESEND_API_KEY en .env');
+    console.error('❌ No se envió el correo: falta RESEND_API_KEY (order_id=' + orderId + ', to=' + redactEmail(destino) + ').');
     return;
   }
   if (!Array.isArray(tickets) || tickets.length === 0) {
@@ -1152,13 +1189,11 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
     tickets = [{ token, ticket_uuid: null }];
   }
 
-  let qrArchivo = null;
+  // Los QR se generan SOLO en memoria: en serverless (Vercel) el disco es de
+  // solo lectura, así que nada de fs.mkdirSync / QRCode.toFile aquí.
   const adjuntos = [];
   const qrInline = [];
   try {
-    const dirEnvios = path.join(__dirname, 'envios');
-    fs.mkdirSync(dirEnvios, { recursive: true });
-
     for (let i = 0; i < tickets.length; i++) {
       const t = tickets[i];
       if (!t || !t.token) continue;
@@ -1168,7 +1203,7 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
 
       adjuntos.push({
         filename: `entrada-${num}.png`,
-        content: png.toString('base64'),
+        content: b64,
         contentType: 'image/png'
       });
       qrInline.push(`
@@ -1179,23 +1214,17 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
           <a href="${baseUrl}/ticket.html?ticket=${encodeURIComponent(t.token)}" style="font-size:12px;color:#059669;text-decoration:underline;">Ver / descargar esta entrada</a>
         </div>
       `);
-
-      if (i === 0) {
-        qrArchivo = path.join(dirEnvios, `entrada-qr-${orderId || 'sin-id'}-${Date.now()}.png`);
-        await QRCode.toFile(qrArchivo, t.token, { type: 'png', width: 512, margin: 2 });
-        console.log('💾 Copia del QR guardada en:', qrArchivo);
-      }
     }
   } catch (err) {
     console.warn('No se pudieron generar los QR adjuntos:', err.message);
   }
 
   if (adjuntos.length === 0) {
-    console.warn('⚠️ No se generó ningún QR para enviar (order_id=' + orderId + ').');
+    console.error('❌ No se generó ningún QR para enviar (order_id=' + orderId + ').');
     return;
   }
 
-  // Registro de auditoría
+  // Registro de auditoría (qr_archivo ya no se genera en disco: queda NULL)
   try {
     if (pool) {
       await pool.query(
@@ -1210,16 +1239,10 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
         )`
       );
       await pool.query(
-        `INSERT INTO envios_qr (order_id, qr_token, qr_archivo, email_to, titulo_evento) VALUES ($1, $2, $3, $4, $5)`,
-        [orderId ? Number(orderId) : null, tickets[0].token, qrArchivo, destino, tituloEvento || null]
+        `INSERT INTO envios_qr (order_id, qr_token, qr_archivo, email_to, titulo_evento) VALUES ($1, $2, NULL, $3, $4)`,
+        [orderId ? Number(orderId) : null, tickets[0].token, destino, tituloEvento || null]
       );
       console.log('🗄️ Referencia del envío registrada en envios_qr (order_id=' + orderId + ', email=' + redactEmail(destino) + ')');
-    }
-    if (supabase && qrArchivo) {
-      const { error } = await supabase.from('ordenes').update({ qr_archivo: qrArchivo }).eq('id', Number(orderId));
-      if (error && !/column .*qr_archivo.* does not exist/i.test(error.message)) {
-        console.warn('No se pudo actualizar qr_archivo en Supabase:', error.message);
-      }
     }
   } catch (err) {
     console.warn('No se pudo registrar referencia del envío en BD:', err.message);
@@ -1236,18 +1259,27 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
     </div>
   `;
 
+  const remitente = process.env.RESEND_FROM || 'Vive Ticket <contacto@viveticket.cl>';
+
   const intentarEnvio = () => resend.emails.send({
-    from: 'Vive Ticket <contacto@viveticket.cl>',
+    from: remitente,
     to: destino,
     subject: `🎟️ Tu entrada - ${htmlEscape(tituloEvento) || 'Taller Vive Ticket'}`,
     html,
     attachments: adjuntos
   });
 
+  // [RESEND] Loguear claramente cualquier error devuelto por la API
+  // (incluyendo dominio no verificado o API key inválida).
+  const logErrorResend = (err, ctx) => {
+    const detalle = err?.name || err?.statusCode || '';
+    console.error('❌ Error Resend ' + (ctx || '') + ' (order_id=' + orderId + '):', (detalle ? detalle + ' - ' : '') + (err?.message || JSON.stringify(err)));
+  };
+
   try {
     const enviado = await intentarEnvio();
     if (enviado?.error) {
-      console.error('Resend devolvió error al enviar QR (order_id=' + orderId + '):', enviado.error?.message || JSON.stringify(enviado.error));
+      logErrorResend(enviado.error, 'al enviar QR');
       return;
     }
     console.log(`📨 QR(s) enviado(s) a ${redactEmail(destino)} (order_id=` + orderId + ')');
@@ -1257,7 +1289,7 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
     try {
       const reenviado = await intentarEnvio();
       if (reenviado?.error) {
-        console.error('Resend devolvió error en reintento de QR (order_id=' + orderId + '):', reenviado.error?.message || JSON.stringify(reenviado.error));
+        logErrorResend(reenviado.error, 'en reintento');
         return;
       }
       console.log(`📨 QR(s) enviado(s) en reintento a ${redactEmail(destino)} (order_id=` + orderId + ')');
@@ -1322,7 +1354,7 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
 
     // Solo se llega aquí con un pago aprobado verificado en Mercado Pago.
     const resultado = await processOrderPayment(order.id, order.taller_id, order.cantidad);
-    const emailEnvio = sanitizeText(order?.email_comprador) || sanitizeText(email) || sanitizeText(order?.email) || '';
+    const emailEnvio = await resolverEmailComprador(order, { payer: { email: email } }) || '';
     if (emailEnvio) {
       await enviarQRAlComprador({
         orderId: order.id,
@@ -1415,6 +1447,8 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       if (pagosAprobados.length > 0 && pagosAprobados[0]?.external_reference) {
         externalRef = pagosAprobados[0].external_reference || externalRef;
       }
+      metaEmail = sanitizeText((mo?.payer?.email) || (mo?.buyer?.email) || '');
+      metaNombre = sanitizeText((mo?.payer?.first_name) || (mo?.buyer)?.first_name || '');
     } else {
       let payment;
       try {
@@ -1467,7 +1501,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       }
 
       const resultado = await processOrderPayment(order.id, order.taller_id, order.cantidad);
-      const emailCompradorPago = sanitizeText(order?.email_comprador) || metaEmail;
+      const emailCompradorPago = await resolverEmailComprador(order, { payer: { email: metaEmail }, metadata: { email_comprador: metaEmail } });
       const nombreCompradorPago = sanitizeText(order?.nombre_comprador) || metaNombre;
       const tituloEventoWebhook = metaTitulo || await resolverTituloEvento(order);
       await enviarQRAlComprador({
@@ -1620,7 +1654,7 @@ app.post('/api/orders/:id/re-enviar-qr',
       return res.status(404).json({ error: 'No hay QR disponible para esta orden' });
     }
 
-    const emailEnvio = sanitizeText(order?.email_comprador) || sanitizeText(email) || sanitizeText(order?.email) || '';
+    const emailEnvio = await resolverEmailComprador(order, { payer: { email } }) || '';
     if (!emailEnvio) {
       return res.status(400).json({ error: 'Falta el correo del comprador para reenviar el QR.' });
     }

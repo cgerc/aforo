@@ -259,6 +259,78 @@ async function deductSeats(tallerId, cantidad) {
   }
 }
 
+// Finaliza la compra de forma ATÓMICA en UNA transacción:
+// 1) flip PENDIENTE -> PAGADA (condicional: solo "gana" la primera ejecución),
+// 2) descuento de cupos con lock (no permite sobreventa),
+// 3) creación de entradas.
+// Si falta cupo o falla algo -> ROLLBACK total (la orden queda SIN cupos/estado original).
+// Devuelve { winner, alreadyPaid, cuposOk, available, order, tickets }.
+async function finalizePaidOrder({ order_id, taller_id, cantidad = 1, tokens = [] }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Flip atómico PENDIENTE -> PAGADA. Solo gana quien lo logre primero.
+    const flip = await client.query(
+      `UPDATE ordenes SET status = 'PAGADA' WHERE id = $1 AND status = 'PENDIENTE' RETURNING *`,
+      [Number(order_id)]
+    );
+
+    if (flip.rowCount === 0) {
+      await client.query('ROLLBACK');
+      const ya = await client.query(`SELECT * FROM ordenes WHERE id = $1 LIMIT 1`, [Number(order_id)]);
+      const orderYa = ya.rows[0] || null;
+      if (orderYa && orderYa.status === 'PAGADA') {
+        const t = await client.query(`SELECT * FROM entradas WHERE order_id = $1 ORDER BY id ASC`, [Number(order_id)]);
+        return { winner: false, alreadyPaid: true, order: orderYa, tickets: t.rows };
+      }
+      return { winner: false, alreadyPaid: false };
+    }
+
+    const order = flip.rows[0];
+
+    // 2. Reserva de cupos con lock de fila (sin sobreventa posible).
+    if (taller_id == null) {
+      console.error(`⚠️ Orden #${order_id} pagada sin taller_id: su QR no podrá validarse por taller.`);
+    } else {
+      const sel = await client.query(`SELECT tickets_vendidos, tickets_max FROM eventos WHERE id = $1 FOR UPDATE`, [Number(taller_id)]);
+      if (sel.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { winner: true, cuposOk: false, reason: 'TALLER_INEXISTENTE', order };
+      }
+      const { tickets_vendidos = 0, tickets_max = 0 } = sel.rows[0];
+      const available = Number(tickets_max) - Number(tickets_vendidos);
+      if (Number(tickets_max) > 0 && available < Number(cantidad)) {
+        await client.query('ROLLBACK');
+        return { winner: true, cuposOk: false, available, reason: 'SIN_CUPOS', order };
+      }
+      await client.query(
+        `UPDATE eventos SET tickets_vendidos = tickets_vendidos + $1 WHERE id = $2`,
+        [Number(cantidad), Number(taller_id)]
+      );
+    }
+
+    // 3. Crear entradas (un QR por ticket) en la misma transacción.
+    for (const item of tokens || []) {
+      if (!item || !item.ticket_uuid || !item.jwt) continue;
+      await client.query(
+        `INSERT INTO entradas (ticket_uuid, order_id, taller_id, token, status) VALUES ($1, $2, $3, $4, 'PAGADA')`,
+        [item.ticket_uuid, Number(order_id), taller_id ? Number(taller_id) : null, item.jwt]
+      );
+    }
+
+    const ticketsRes = await client.query(`SELECT * FROM entradas WHERE order_id = $1 ORDER BY id ASC`, [Number(order_id)]);
+
+    await client.query('COMMIT');
+    return { winner: true, cuposOk: true, order, tickets: ticketsRes.rows };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return { winner: false, error: err.message || String(err) };
+  } finally {
+    client.release();
+  }
+}
+
 // --- Entradas (un registro / QR por ticket de la compra) ---
 async function createTickets({ order_id, taller_id, cantidad = 1, tokens = [] }) {
   const client = await pool.connect();
@@ -369,5 +441,6 @@ export {
   getTicketByUuid,
   countPendingTickets,
   countTicketsByOrder,
-  markTicketUsedAtomic
+  markTicketUsedAtomic,
+  finalizePaidOrder
 };

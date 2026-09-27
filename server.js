@@ -10,7 +10,7 @@ import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import jwt from 'jsonwebtoken';
 import QRCode from 'qrcode';
 import { Resend } from 'resend';
-import { initDb, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats, createTickets, getTicketsByOrder, getTicketByToken, getTicketByUuid, countPendingTickets, countTicketsByOrder, markTicketUsedAtomic } from './db.js';
+import { initDb, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats, createTickets, getTicketsByOrder, getTicketByToken, getTicketByUuid, countPendingTickets, countTicketsByOrder, markTicketUsedAtomic, finalizePaidOrder } from './db.js';
 
 // Importar middleware de autenticación
 import { requireAuth, usuarioEsDuenoDeEvento } from './middleware/auth.js';
@@ -126,22 +126,29 @@ if (mpAccessToken) {
 console.log('>>> [DEBUG] process.env.MERCADOPAGO_ACCESS_TOKEN:', process.env.MERCADOPAGO_ACCESS_TOKEN ? 'Existe' : 'No encontrado (undefined)');
 console.log('>>> [DEBUG] mpClient inicializado:', Boolean(mpClient));
 
-// [SEGURIDAD] Secreto del webhook de MP. Si no está configurado, el webhook continúa
-// confiando en el re-fetch del pago (C1); con él se valida X-Signature.
+// [SEGURIDAD] Secreto del webhook de MP. Obligatorio: sin él el webhook rechaza
+// las notificaciones (fail-closed). Con él se valida X-Signature + anti-replay.
 const mpWebhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET || '';
 if (mpWebhookSecret) {
   console.log('>>> Webhook de MP verificará firma X-Signature.');
 } else {
-  console.warn('⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado: el webhook de MP confía en el re-fetch del pago. Define el secreto en .env para validar X-Signature.');
+  console.warn('⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado: el webhook rechazará las notificaciones (fail-closed). Define el secreto en .env para que procese pagos.');
 }
 
 function firmaWebhookValida(req) {
-  if (!mpWebhookSecret) return true;
   const firma = String(req.get('x-signature') || '');
   const requestId = String(req.get('x-request-id') || '');
   const tsMatch = firma.match(/(?:^|;)ts=([^;]+)/);
   const v1Match = firma.match(/(?:^|;)v1=([^;]+)/);
   if (!tsMatch || !v1Match || !requestId) return false;
+  // [SEGURIDAD] Anti-replay: el ts firmado no puede ser antiguo ni futuro (±5 min).
+  const tsNum = Number(tsMatch[1]);
+  if (!Number.isFinite(tsNum)) return false;
+  const desviacionSec = Math.abs(Date.now() / 1000 - tsNum);
+  if (desviacionSec > 5 * 60) {
+    console.warn('Webhook MP con ts fuera de ventana (posible replay):', Math.round(desviacionSec), 's');
+    return false;
+  }
   let dataId = '';
   if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
     dataId = req.body?.data?.id ?? req.body?.id ?? '';
@@ -209,6 +216,13 @@ async function ordenLookup(id) {
     try { order = await getOrderById(Number(id)); } catch (e) { order = null; }
   }
   return order;
+}
+
+// [SEGURIDAD] Devuelve solo la parte pública de un evento: NUNCA validador_token ni usuario_id.
+function eventoPublico(evento) {
+  if (!evento) return null;
+  const { validador_token, usuario_id, tutor_id, password, ...resto } = evento;
+  return resto;
 }
 
 async function eventoLookup(eventoId) {
@@ -471,15 +485,18 @@ app.post('/api/inscribir', async (req, res) => {
 });
 
 // OBTENER TODOS LOS EVENTOS
+// [SEGURIDAD] Proyección explícita: NUNCA se exponen validador_token ni usuario_id.
 app.get('/api/eventos', async (req, res) => {
   try {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase no está configurado. Revisa SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en tu .env' });
     }
 
+    const columnasPublicas = 'id, titulo, descripcion, fecha, categoria, comuna, direccion, lat, lng, imagen, categorias, tickets_vendidos, tickets_max, profesional_nombre, profesional_imagen, created_at';
+
     const { data, error } = await supabase
       .from('eventos')
-      .select('*')
+      .select(columnasPublicas)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -488,7 +505,7 @@ app.get('/api/eventos', async (req, res) => {
     }
 
     const eventos = (data || []).map((evento) => ({
-      ...evento,
+      id: evento.id,
       categorias: Array.isArray(evento.categorias) ? evento.categorias : [],
       fecha: evento.fecha || null,
       imagen: evento.imagen || null,
@@ -499,6 +516,8 @@ app.get('/api/eventos', async (req, res) => {
       direccion: evento.direccion || '',
       lat: evento.lat ?? null,
       lng: evento.lng ?? null,
+      tickets_vendidos: evento.tickets_vendidos ?? 0,
+      tickets_max: evento.tickets_max ?? 0,
       profesional_nombre: evento.profesional_nombre || '',
       profesional_imagen: evento.profesional_imagen || null
     }));
@@ -697,31 +716,54 @@ app.delete('/api/eventos/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'ID de evento requerido.' });
 
-    // Verificar que el evento pertenece al usuario autenticado
+    // [SEGURIDAD] Verificar dueño SIEMPRE (independiente de Supabase/pool):
+    // el chequeo no puede vivir dentro de un if(supabase) o un fallo de esa
+    // conexión dejaría el endpoint abierto a borrado de eventos ajenos.
+    const eventoIdNum = Number(id);
+    if (!Number.isInteger(eventoIdNum) || eventoIdNum <= 0) {
+      return res.status(400).json({ error: 'ID de evento inválido.' });
+    }
+
+    let existing = null;
     if (supabase) {
-      const { data: existing, error: checkErr } = await supabase
+      const { data, error: checkErr } = await supabase
         .from('eventos')
         .select('id, usuario_id')
-        .eq('id', Number(id))
+        .eq('id', eventoIdNum)
         .single();
-
-      if (checkErr || !existing) {
+      if (checkErr && !data) {
         return res.status(404).json({ error: 'Evento no encontrado.' });
       }
-
-      if (existing.usuario_id !== req.user.id) {
-        return res.status(403).json({ error: 'No tienes permiso para eliminar este evento.' });
+      existing = data;
+    }
+    if (!existing && pool) {
+      try {
+        const r = await pool.query('SELECT id, usuario_id FROM eventos WHERE id = $1 LIMIT 1', [eventoIdNum]);
+        if (r.rowCount > 0) existing = r.rows[0];
+      } catch (e) {
+        console.warn('Error consultando evento en pool:', e.message);
       }
+    }
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Evento no encontrado.' });
+    }
+
+    // [SEGURIDAD] Denegar si no hay dueño verificable o no coincide (null/undefined
+    // nunca puede confirmar propiedad de otro usuario autenticado).
+    if (existing.usuario_id === undefined || existing.usuario_id === null ||
+        String(existing.usuario_id) !== String(req.user.id)) {
+      return res.status(403).json({ error: 'No tienes permiso para eliminar este evento.' });
     }
 
     // 1. Eliminar en Supabase
     if (supabase) {
-      await supabase.from('ordenes').delete().eq('taller_id', Number(id));
+      await supabase.from('ordenes').delete().eq('taller_id', eventoIdNum);
 
       const { error } = await supabase
         .from('eventos')
         .delete()
-        .eq('id', Number(id));
+        .eq('id', eventoIdNum);
 
       if (error) {
         console.error('Error eliminando evento en Supabase:', error.message);
@@ -732,8 +774,8 @@ app.delete('/api/eventos/:id', requireAuth, async (req, res) => {
     // 2. Eliminar en BD local pool si aplica
     if (pool) {
       try {
-        await pool.query('DELETE FROM ordenes WHERE taller_id = $1', [Number(id)]);
-        await pool.query('DELETE FROM eventos WHERE id = $1', [Number(id)]);
+        await pool.query('DELETE FROM ordenes WHERE taller_id = $1', [eventoIdNum]);
+        await pool.query('DELETE FROM eventos WHERE id = $1', [eventoIdNum]);
       } catch (err) {
         console.warn('Advertencia borrando evento local:', err.message);
       }
@@ -1045,31 +1087,46 @@ app.post('/api/create-preference', async (req, res) => {
 
 // Crea la orden PAGADA y genera un QR (registro en `entradas`) por cada entrada de la compra.
 // Es idempotente: si la orden ya tiene entradas, no las duplica.
+// Atlógico: flip + cupos + entradas en UNA transacción (evita sobreventa y doble emisión).
 async function processOrderPayment(orderId, tallerId, cantidad) {
   const tallerIdFinal = tallerId ? Number(tallerId) : null;
 
-  if (!tallerIdFinal) {
-    console.error(`⚠️ Orden #${orderId} pagada sin taller_id: su QR no podrá validarse por taller. Revisa el flujo de compra.`);
+  const fechaTaller = await obtenerFechaEvento(tallerIdFinal);
+  const expSeg = calcularExpTicket(fechaTaller);
+  const tokens = [];
+  const cant = Number(cantidad) || 1;
+  for (let i = 0; i < cant; i++) {
+    const ticketUuid = crypto.randomUUID();
+    tokens.push({
+      ticket_uuid: ticketUuid,
+      jwt: jwt.sign(
+        { ticket_id: ticketUuid, order_id: Number(orderId), taller_id: tallerIdFinal, fecha: fechaTaller, exp: expSeg },
+        qrSecret
+      )
+    });
   }
 
-  // 1. Idempotencia: si la orden ya generó sus entradas, no volver a crearlas
-  let entradasExistentes = 0;
-  try { entradasExistentes = await hasOrderTickets(orderId); } catch (_) {}
-
-  // 2. Marcado atómico PENDIENTE -> PAGADA (solo "gana" el primero que llegue)
-  let flipped = false;
-  try {
-    if (pool) {
-      const r = await pool.query(
-        `UPDATE ordenes SET status = 'PAGADA' WHERE id = $1 AND status = 'PENDIENTE' RETURNING id`,
-        [Number(orderId)]
-      );
-      flipped = (r.rowCount || 0) > 0;
+  // 1. Vía pool: todo dentro de una misma transacción (recomendado).
+  if (pool) {
+    const resultado = await finalizePaidOrder({ order_id: orderId, taller_id: tallerIdFinal, cantidad: cant, tokens });
+    if (resultado.error) {
+      console.error(`⚠️ Error finalizando orden #${orderId} (pool):`, resultado.error);
     }
-  } catch (err) {
-    console.warn('No se pudo marcar PAGADA en DB local pool:', err.message);
+    if (!resultado.winner && resultado.alreadyPaid) {
+      return { cuposOk: true, token: resultado.tickets?.[0]?.token || null, tickets: resultado.tickets || [] };
+    }
+    if (!resultado.winner) {
+      return { cuposOk: false, error: resultado.error || 'Race perdido', token: null, tickets: [] };
+    }
+    if (!resultado.cuposOk) {
+      console.error(`🚨 SOBREVENTA DETECTADA: orden #${orderId} (taller ${tallerIdFinal}) sin cupo. ${resultado.reason || ''}`);
+      return { cuposOk: false, reason: resultado.reason || 'SIN_CUPOS', available: resultado.available, token: null, tickets: [] };
+    }
+    return { cuposOk: true, token: resultado.tickets?.[0]?.token || null, tickets: resultado.tickets || [] };
   }
 
+  // 2. Fallback sin pool: Supabase (flip condicional + check de cupo antes de emitir).
+  let flipped = false;
   if (supabase) {
     try {
       const { data, error } = await supabase
@@ -1085,57 +1142,35 @@ async function processOrderPayment(orderId, tallerId, cantidad) {
     }
   }
 
-  // 3. Generar UN QR por entrada (solo quien ganó el marcado PENDIENTE->PAGADA lo hace;
-  //    así, aunque el webhook llegue dos veces, no se duplican entradas)
-  if (flipped && entradasExistentes === 0) {
-    const fechaTaller = await obtenerFechaEvento(tallerIdFinal);
-    const expSeg = calcularExpTicket(fechaTaller);
-    const tokens = [];
-    for (let i = 0; i < (Number(cantidad) || 1); i++) {
-      const ticketUuid = crypto.randomUUID();
-      tokens.push({
-        ticket_uuid: ticketUuid,
-        jwt: jwt.sign(
-          { ticket_id: ticketUuid, order_id: Number(orderId), taller_id: tallerIdFinal, fecha: fechaTaller, exp: expSeg },
-          qrSecret
-        )
-      });
+  if (flipped) {
+    let hayCupo = true;
+    if (tallerIdFinal) {
+      const ev = await eventoLookup(tallerIdFinal);
+      const vendidos = Number(ev?.tickets_vendidos) || 0;
+      const max = Number(ev?.tickets_max) || 0;
+      if (max > 0 && max - vendidos < cant) hayCupo = false;
     }
-
+    if (!hayCupo) {
+      console.error(`🚨 SOBREVENTA DETECTADA (Supabase): orden #${orderId} sin cupo.`);
+      return { cuposOk: false, reason: 'SIN_CUPOS', token: null, tickets: [] };
+    }
     try {
-      if (pool) await createTickets({ order_id: orderId, taller_id: tallerIdFinal, cantidad: tokens.length, tokens });
+      const filas = tokens.map(t => ({
+        ticket_uuid: t.ticket_uuid,
+        order_id: Number(orderId),
+        taller_id: tallerIdFinal,
+        token: t.jwt,
+        status: 'PAGADA'
+      }));
+      const { error } = await supabase.from('entradas').insert(filas).select('id');
+      if (error) console.warn('No se pudieron crear entradas (Supabase):', error.message);
     } catch (err) {
-      console.warn('No se pudieron crear entradas (pool):', err.message);
-    }
-
-    if (supabase) {
-      try {
-        const filas = tokens.map(t => ({
-          ticket_uuid: t.ticket_uuid,
-          order_id: Number(orderId),
-          taller_id: tallerIdFinal,
-          token: t.jwt,
-          status: 'PAGADA'
-        }));
-        const { error } = await supabase.from('entradas').insert(filas).select('id');
-        if (error) console.warn('No se pudieron crear entradas (Supabase):', error.message);
-      } catch (err) {
-        console.warn('Error creando entradas en Supabase:', err.message);
-      }
-    }
-  }
-
-  // 4. Descontar cupos solo si esta llamada ganó el marcado
-  if (flipped && tallerIdFinal) {
-    try {
-      await deductSeats(tallerIdFinal, Number(cantidad) || 1);
-    } catch (err) {
-      console.warn('Error descontando cupos:', err.message);
+      console.warn('Error creando entradas en Supabase:', err.message);
     }
   }
 
   const tickets = await leerEntradasOrden(orderId);
-  return { token: tickets && tickets.length > 0 ? tickets[0].token : null, tickets: tickets || [] };
+  return { cuposOk: tickets && tickets.length > 0, token: tickets && tickets.length > 0 ? tickets[0].token : null, tickets: tickets || [] };
 }
 
 // [SEGURIDAD/UX] Resuelve el correo del comprador con varios orígenes, en orden:
@@ -1302,7 +1337,13 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
 }
 
 // Endpoint de respaldo para confirmar el pago desde confirmacion.html
-app.post('/api/orders/confirm-payment', async (req, res) => {
+// [SEGURIDAD] Confirma el pago/entradas de una orden SOLO si el cliente demuestra
+// el token de acceso de la orden (at) o es el organizador dueño del taller.
+// La existencia de un pago aprobado NO es prueba de acceso (evita IDOR por order_id
+// secuencial). Además lleva rate limit para impedir barridos de órdenes.
+app.post('/api/orders/confirm-payment',
+  rateLimit({ windowMs: 15 * 60 * 1000, max: 30, keyFn: (req) => `confirm:${req.ip || 'x'}` }),
+  async (req, res) => {
   try {
     const { order_id, email, nombre_comprador } = req.body || {};
     if (!order_id) return res.status(400).json({ error: 'Falta order_id' });
@@ -1324,11 +1365,15 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
 
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    const accesoOrden = (await accesoOrdenPermitido(req, order, req.body?.at)) ||
-      Boolean(await obtenerPagoAprobadoDeOrden(order));
+    // [SEGURIDAD] Prueba de acceso ya verificada: at HMAC, token de orden o
+    // sesión del organizador dueño. Sin esto, no se revelan datos ni se procesa nada.
+    const accesoOrden = await accesoOrdenPermitido(req, order, req.body?.at);
 
-    // [SEGURIDAD] C1: nunca marcar una orden como pagada sin prueba real de pago.
     if (order.status === 'PENDIENTE') {
+      if (!accesoOrden) {
+        return res.status(403).json({ error: 'Acceso no autorizado a esta orden.' });
+      }
+      // [SEGURIDAD] Solo con prueba real de pago en Mercado Pago se marca pagada.
       const pagoAprobado = await obtenerPagoAprobadoDeOrden(order);
       if (!pagoAprobado) {
         return res.status(403).json({ error: 'No se encontró un pago aprobado para esta orden. Si ya pagaste, espera unos segundos y vuelve a cargar.' });
@@ -1354,8 +1399,18 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
       return res.status(409).json({ error: 'La orden ya fue utilizada.' });
     }
 
+    // [SEGURIDAD] Solo se procesa el pago desde aquí si la orden está PENDIENTE,
+    // con acceso verificado y pago aprobado confirmado en Mercado Pago.
+    if (order.status !== 'PENDIENTE' || !accesoOrden) {
+      return res.status(403).json({ error: 'Acceso no autorizado a esta orden.' });
+    }
+
     // Solo se llega aquí con un pago aprobado verificado en Mercado Pago.
     const resultado = await processOrderPayment(order.id, order.taller_id, order.cantidad);
+    if (!resultado.cuposOk) {
+      console.error(`🚨 confirm-payment: orden #${order.id} con pago aprobado pero SIN CUPO.`);
+      return res.status(409).json({ error: 'El evento ya no tiene cupos disponibles para esta orden. Contáctanos para resolver tu pago.' });
+    }
     const emailEnvio = await resolverEmailComprador(order, { payer: { email: email } }) || '';
     if (emailEnvio) {
       await enviarQRAlComprador({
@@ -1376,13 +1431,21 @@ app.post('/api/orders/confirm-payment', async (req, res) => {
 });
 
 // Webhook de Mercado Pago
-app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, res) => {
+// [SEGURIDAD] A4: rate limit por IP + validación de firma/frescura/preference/monto.
+app.post('/api/webhook/mercadopago',
+  rateLimit({ windowMs: 60 * 1000, max: 120, keyFn: (req) => `webhook:${req.ip || 'x'}` }),
+  express.raw({ type: '*/*' }), async (req, res) => {
   try {
     if (!mpClient) {
       return res.status(503).json({ ok: false, error: 'Mercado Pago no está configurado.' });
     }
+    if (!mpWebhookSecret) {
+      // [SEGURIDAD] A4: fail-closed. Sin MERCADOPAGO_WEBHOOK_SECRET no se aceptan notificaciones.
+      console.warn('Webhook rechazado: falta MERCADOPAGO_WEBHOOK_SECRET para validar la firma.');
+      return res.status(503).json({ ok: false, error: 'Webhook no configurado: falta MERCADOPAGO_WEBHOOK_SECRET.' });
+    }
 
-    // [SEGURIDAD] Validar firma X-Signature cuando el secreto está configurado.
+    // [SEGURIDAD] Validar firma X-Signature (obligatoria, con anti-replay en ts).
     if (!firmaWebhookValida(req)) {
       return res.status(401).json({ ok: false, error: 'Firma de webhook inválida.' });
     }
@@ -1416,6 +1479,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
     let metaEmail = '';
     let metaNombre = '';
     let metaTitulo = '';
+    let metaMonto = 0;
 
     if (esMerchantOrder) {
       // Consultar la orden de MP para extraer el id interno (external_reference)
@@ -1449,6 +1513,8 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       if (pagosAprobados.length > 0 && pagosAprobados[0]?.external_reference) {
         externalRef = pagosAprobados[0].external_reference || externalRef;
       }
+      metaMonto = pagosAprobados.reduce((sum, p) => sum + (Number(p?.transaction_amount) || 0), 0);
+      if (!metaMonto && Number(mo?.total_amount)) metaMonto = Number(mo.total_amount);
       metaEmail = sanitizeText((mo?.payer?.email) || (mo?.buyer?.email) || '');
       metaNombre = sanitizeText((mo?.payer?.first_name) || (mo?.buyer)?.first_name || '');
     } else {
@@ -1467,6 +1533,7 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       status = (payment?.status || payment?.collection?.status || '').toString().toLowerCase();
       externalRef = (payment?.external_reference) || (payment?.order?.external_reference) || (payment?.collection?.external_reference) || externalRef;
       prefId = (payment?.preference_id) || (payment?.collection?.preference_id) || null;
+      metaMonto = Number(payment?.transaction_amount) || Number(payment?.collection?.transaction_amount) || Number(payment?.order?.total_amount) || 0;
       metaEmail = sanitizeText((payment?.metadata?.email_comprador) || (payment?.payer?.email) || '');
       metaNombre = sanitizeText((payment?.metadata?.nombre_comprador) || (payment?.payer?.first_name) || '');
       metaTitulo = sanitizeText((payment?.metadata?.titulo_evento) || '');
@@ -1497,12 +1564,37 @@ app.post('/api/webhook/mercadopago', express.raw({ type: '*/*' }), async (req, r
       return res.status(200).json({ ok: true, message: 'Orden no encontrada aún' });
     }
 
+    // [SEGURIDAD] A4: el merchant_order/payment debe corresponder a la preferencia
+    // esperada por la orden y al monto esperado (cantidad * precio del evento).
+    if (order.preference_id && prefId && String(prefId) !== String(order.preference_id)) {
+      console.error('Webhook MP con preference_id ajeno a la orden:', { orderId: order.id, esperado: order.preference_id, recibido: prefId });
+      return res.status(400).json({ ok: false, error: 'preference_id no corresponde a la orden' });
+    }
+
+    if (metaMonto > 0) {
+      const evPrecios = await eventoLookup(order.taller_id);
+      const preciosValidos = Array.isArray(evPrecios?.categorias)
+        ? evPrecios.categorias.map((c) => Number(c && c.precio)).filter((p) => Number.isFinite(p) && p > 0)
+        : [];
+      const cantidadOrd = Number(order.cantidad) || 1;
+      const montoEsperado = preciosValidos.map((p) => cantidadOrd * p);
+      // Pago aprobado pero por un monto que no coincide con ninguna tarifa válida.
+      if (montoEsperado.length > 0 && !montoEsperado.includes(metaMonto)) {
+        console.error('Webhook MP con monto inesperado:', { orderId: order.id, recibido: metaMonto, esperado: montoEsperado });
+        return res.status(400).json({ ok: false, error: 'Monto del pago no coincide con la orden' });
+      }
+    }
+
     if (status === 'approved') {
       if (order.status === 'PAGADA') {
         return res.status(200).json({ ok: true, message: 'Orden ya registrada como PAGADA' });
       }
 
       const resultado = await processOrderPayment(order.id, order.taller_id, order.cantidad);
+      if (!resultado.cuposOk) {
+        console.error(`🚨 Webhook: orden #${order.id} con pago aprobado pero SIN CUPO. Revisión/reembolso requerido.`, resultado.reason || '');
+        return res.status(409).json({ ok: false, error: `No hay cupos disponibles para esta orden #${order.id}. Contacta al organizador.` });
+      }
       const emailCompradorPago = await resolverEmailComprador(order, { payer: { email: metaEmail }, metadata: { email_comprador: metaEmail } });
       const nombreCompradorPago = sanitizeText(order?.nombre_comprador) || metaNombre;
       const tituloEventoWebhook = metaTitulo || await resolverTituloEvento(order);
@@ -1599,7 +1691,7 @@ app.get('/api/entradas/:token', async (req, res) => {
           return res.json({
             ok: true,
             ticket: { order_id: order.id, status: order.status, used_at: null, taller_id: order.taller_id, ticket_uuid: `order_${order.id}` },
-            evento,
+            evento: eventoPublico(evento),
             qr_data_url: qrDataUrl
           });
         }
@@ -1623,7 +1715,7 @@ app.get('/api/entradas/:token', async (req, res) => {
         order_id: ticket.order_id,
         taller_id: ticket.taller_id
       },
-      evento,
+      evento: eventoPublico(evento),
       qr_data_url: qrDataUrl
     });
   } catch (err) {

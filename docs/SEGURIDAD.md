@@ -96,14 +96,19 @@ si una operación destructiva es imprescindible, exige:
 - Autorización del validador por id numérico público → restringido a eventos sin
   `validador_token` (legacy); los actuales exigen el enlace UUID.
 - Fuerza bruta en auth → rate limiting por IP y límite de intentos del código.
+- Sobreventa: `processOrderPayment` ahora descuenta cupos dentro de la MISMA
+  transacción que marca la orden PAGADA y crea las entradas
+  (`finalizePaidOrder` en `db.js`); si no hay cupo se revierte todo y no se
+  emiten QR (webhook/confirm responden 409 pidiendo revisión).
+- Webhook MP fail-open → fail-closed: sin `MERCADOPAGO_WEBHOOK_SECRET` las
+  notificaciones se rechazan (503). Con secreto se valida X-Signature (HMAC SHA-256),
+  frescura del `ts` (±5 min anti-replay), `preference_id` contra la orden y el monto
+  contra `cantidad × precio` del evento. Además rate limit por IP.
 
 ### Pendientes (sugeridos)
-- Verificación de firma de webhook de Mercado Pago (recomendado).
-- Marcado atómico del flujo legacy de orden-completa.
-- `helmet` y `CORS` con orígenes fijos.
-- Escape HTML en asuntos/plantillas de correo.
 - Expiración/borrado de `registros_pendientes` sin verificar.
 - Pruebas automatizadas (unit/regresión) de los flujos de pago y validación.
+- `helmet` CSP (deshabilitada a día de hoy) y cookies HttpOnly para sesiones/reenvíos.
 
 ## 6. Checklist de verificación post-cambio
 1. `node --check server.js db.js` (y `routes/*.js`).

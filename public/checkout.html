@@ -309,6 +309,13 @@
                     try {
                         localStorage.setItem('comprador_ticketera', JSON.stringify({ nombre, email }));
                     } catch (e) { console.warn('No se pudo guardar datos en localStorage:', e); }
+                    // [SEGURIDAD] Respaldar el token de acceso de la orden (at) en memoria local:
+                    // si el back_url de MP lo pierde al volver, confirmacion.html lo recupera de aquí.
+                    if (data.order_id && data.at) {
+                        try {
+                            localStorage.setItem('orden_at_' + data.order_id, data.at);
+                        } catch (e) { console.warn('No se pudo guardar el token de orden:', e); }
+                    }
                     // Redirige directamente al portal seguro de Mercado Pago (Checkout Pro)
                     window.location.href = data.init_point;
                 } else {

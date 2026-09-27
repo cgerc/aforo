@@ -296,6 +296,16 @@ function renderizarMarcadoresMapa(lista = eventosData) {
 
 // 3. RENDERIZAR CARRUSEL COMPLETO
 
+function estaSinCupo(ev) {
+
+    const max = Number(ev && ev.tickets_max != null ? ev.tickets_max : 0);
+
+    const vend = Number(ev && ev.tickets_vendidos != null ? ev.tickets_vendidos : 0);
+
+    return max > 0 && vend >= max;
+
+}
+
 function renderizarCarruselSuperior(lista = eventosData) {
 
     const container = document.getElementById('carousel-inner');
@@ -421,8 +431,8 @@ container.innerHTML = '';
 
                 <p class="text-sm text-slate-200 line-clamp-2 mb-6">${ev.descripcion || ''}</p>
 
-                <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="rounded-full bg-[#26B488] hover:bg-[#1FA078] text-white font-bold px-7 py-3 text-sm uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer">
-                    Próximamente — Recibe mayor información aquí
+                <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="rounded-full ${estaSinCupo(ev) ? 'bg-zinc-500 hover:bg-zinc-500 opacity-80 cursor-not-allowed' : 'bg-[#26B488] hover:bg-[#1FA078] cursor-pointer'} text-white font-bold px-7 py-3 text-sm uppercase tracking-wider transition-all shadow-md active:scale-95">
+                    ${estaSinCupo(ev) ? 'Sin cupo — Separa tu cupo para el próximo taller' : 'Próximamente — Recibe mayor información aquí'}
                 </button>
 
             </div>
@@ -607,11 +617,11 @@ function renderizarGrillasPorCategoria(lista = eventosData) {
                 <p class="text-slate-900 font-black text-lg mb-6">$${precioMin.toLocaleString('es-CL')} CLP</p>
 
                 <div class="w-full space-y-2 mt-auto">
-                    <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="w-full bg-[#A0E1C9]/20 hover:bg-[#A0E1C9]/40 text-[#1B5E4B] font-bold py-2.5 rounded-xl uppercase tracking-wider text-xs transition-colors border border-[#A0E1C9] cursor-pointer">
-                        Próximamente — Recibe mayor información
+                    <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="w-full ${estaSinCupo(ev) ? 'bg-zinc-200 hover:bg-zinc-200 text-zinc-500 border-zinc-200 cursor-not-allowed' : 'bg-[#A0E1C9]/20 hover:bg-[#A0E1C9]/40 text-[#1B5E4B] border-[#A0E1C9] cursor-pointer'} font-bold py-2.5 rounded-xl uppercase tracking-wider text-xs transition-colors border">
+                        ${estaSinCupo(ev) ? 'Sin cupo — Separa tu cupo para el próximo taller' : 'Próximamente — Recibe mayor información'}
                     </button>
-                    <button onclick="irAlCheckout(${ev.id})" class="w-full bg-[#26B488] hover:bg-[#1FA078] text-white font-bold py-3 rounded-xl uppercase tracking-wider text-sm transition-colors shadow-md active:scale-95 cursor-pointer">
-                        Comprar Entradas
+                    <button onclick="${estaSinCupo(ev) ? 'return false' : `irAlCheckout(${ev.id})`}" ${estaSinCupo(ev) ? 'disabled' : ''} class="w-full ${estaSinCupo(ev) ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed shadow-none' : 'bg-[#26B488] hover:bg-[#1FA078] text-white shadow-md active:scale-95 cursor-pointer'} font-bold py-3 rounded-xl uppercase tracking-wider text-sm transition-colors">
+                        ${estaSinCupo(ev) ? 'Sin cupos disponibles' : 'Comprar Entradas'}
                     </button>
                 </div>
 

@@ -1204,12 +1204,14 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
       adjuntos.push({
         filename: `entrada-${num}.png`,
         content: b64,
-        contentType: 'image/png'
+        contentType: 'image/png',
+        content_id: `entrada-${num}`
       });
+
+      // <img src="cid:entrada-${num}" alt="Entrada ${num}" style="width:170px;height:170px;border:2px solid #e5e7eb;border-radius:12px;background:#fff;"/>
       qrInline.push(`
         <div style="display:inline-block;margin:10px;text-align:center;">
           <p style="font-weight:bold;color:#374151;margin-bottom:6px;">Entrada ${num}</p>
-          <img src="data:image/png;base64,${b64}" alt="Entrada ${num}" style="width:170px;height:170px;border:2px solid #e5e7eb;border-radius:12px;background:#fff;"/>
           <br/>
           <a href="${baseUrl}/ticket.html?ticket=${encodeURIComponent(t.token)}" style="font-size:12px;color:#059669;text-decoration:underline;">Ver / descargar esta entrada</a>
         </div>

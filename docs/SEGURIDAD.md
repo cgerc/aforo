@@ -104,6 +104,13 @@ si una operación destructiva es imprescindible, exige:
   notificaciones se rechazan (503). Con secreto se valida X-Signature (HMAC SHA-256),
   frescura del `ts` (±5 min anti-replay), `preference_id` contra la orden y el monto
   contra `cantidad × precio` del evento. Además rate limit por IP.
+- Código de verificación de registro con `Math.random` → `crypto.randomInt` (secreto).
+- Passwords de registros en texto plano (columna `password` de `registros_pendientes`)
+  → hash bcrypt; `verify-email` usa el hash guardado sin re-hashear.
+- XSS: salidas de BD/API en `innerHTML` sin escapar (`app.js`, `dashboard.html`,
+  `checkout.html`, `confirmacion.html`, `validador.html`) → helper `esc()`.
+- Confianza en proxies para rate limit: `app.set('trust proxy', 1)` (solo primer
+  proxy; en localhost `req.ip` sigue siendo la IP real).
 
 ### Pendientes (sugeridos)
 - Expiración/borrado de `registros_pendientes` sin verificar.

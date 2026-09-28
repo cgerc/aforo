@@ -125,6 +125,13 @@
 
     <!-- SCRIPT DE CONTROL Y CÁLCULOS DINÁMICOS -->
     <script>
+        // [SEGURIDAD] A3: escapa texto proveniente de BD/localStorage antes de insertarlo en HTML.
+        function esc(valor) {
+            return String(valor ?? '').replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
         let precioUnitario = 0;
         let eventoData = null;
 
@@ -181,7 +188,7 @@
                 if (fechaFormateada) piezas.push(`📅 ${fechaFormateada}`);
                 if (localidad) piezas.push(`📍 ${localidad}`);
                 if (eventoData.categoria) piezas.push(`🏷️ ${eventoData.categoria}`);
-                meta.innerHTML = piezas.map(p => `<span>${p}</span>`).join('');
+                meta.innerHTML = piezas.map(p => `<span>${esc(p)}</span>`).join('');
             }
             if (precio) precio.textContent = `Desde $${precioUnitario.toLocaleString('es-CL')} CLP`;
 
@@ -191,7 +198,7 @@
             const avatar = document.getElementById('resumen-profesional-avatar');
             if (avatar) {
                 if (profImagen) {
-                    avatar.innerHTML = `<img src="${profImagen}" alt="${profNombre}" class="w-full h-full object-cover">`;
+                    avatar.innerHTML = `<img src="${profImagen}" alt="${esc(profNombre)}" class="w-full h-full object-cover">`;
                 } else {
                     avatar.textContent = (profNombre || '?').charAt(0).toUpperCase();
                 }
@@ -205,11 +212,11 @@
         body.innerHTML = `
             <tr class="hover:bg-gray-50/50 transition">
                 <td class="py-4 px-3">
-                    <p class="font-bold text-gray-900">${eventoData.titulo}</p>
-                    <p class="text-xs text-gray-500">${eventoData.direccion || ''}</p>
-                    <p class="text-xs text-gray-400 mt-1 italic line-clamp-1">${eventoData.descripcion || ''}</p>
+                    <p class="font-bold text-gray-900">${esc(eventoData.titulo)}</p>
+                    <p class="text-xs text-gray-500">${esc(eventoData.direccion)}</p>
+                    <p class="text-xs text-gray-400 mt-1 italic line-clamp-1">${esc(eventoData.descripcion)}</p>
                 </td>
-                <td class="py-4 px-3 text-gray-600 font-semibold">${catPrincipal.nombre}</td>
+                <td class="py-4 px-3 text-gray-600 font-semibold">${esc(catPrincipal.nombre)}</td>
                 <td class="py-4 px-3 text-gray-600 font-semibold">$${precioUnitario.toLocaleString('es-CL')}</td>
                 
                 <td class="py-4 px-3 text-center">

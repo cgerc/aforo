@@ -49,6 +49,13 @@
         // Soporta token UUID seguro desde la URL (?token=... o ?validador_token=...)
         const validadorToken = params.get('token') || params.get('validador_token') || params.get('organizador_token') || params.get('taller_token');
 
+        // [SEGURIDAD] A3: escapa texto de la API antes de insertarlo en HTML.
+        function esc(valor) {
+            return String(valor ?? '').replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
         const tallerInfo = document.getElementById('taller-info');
         const box = document.getElementById('feedback');
         const btnRestart = document.getElementById('btn-restart');
@@ -133,7 +140,7 @@
                     // Éxito: Entrada autorizada y marcada como USADA
                     readerContainer.className = "relative w-full bg-zinc-950 rounded-xl overflow-hidden border-2 border-emerald-500";
                     box.className = "p-4 rounded-lg text-center font-bold bg-emerald-950 text-emerald-300 border border-emerald-500";
-                    box.innerHTML = `✅ ${data.message}<br><span class='text-xs font-normal text-emerald-200'>Orden #${data.order_id || ''}</span>`;
+                    box.innerHTML = `✅ ${esc(data.message)}<br><span class='text-xs font-normal text-emerald-200'>Orden #${esc(data.order_id)}</span>`;
                     if (navigator.vibrate) navigator.vibrate(200);
 
                 } else if (res.status === 409) {

@@ -50,6 +50,13 @@
     </div>
 
     <script>
+        // [SEGURIDAD] A3: escapa texto de BD/API antes de insertarlo en HTML.
+        function esc(valor) {
+            return String(valor ?? '').replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
         const params = new URLSearchParams(window.location.search);
         const orderId = params.get('order_id') || params.get('external_reference');
 
@@ -135,7 +142,7 @@
                     </span>
                     <img src="${e.qr_data_url}" alt="Entrada ${num}" class="w-48 h-48 border bg-white rounded-lg shadow-sm my-3"/>
                     ${enlaceTicket}
-                    <button onclick="descargarPNG('${e.qr_data_url}','${num}')" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-500 active:scale-95 transition shadow-sm mt-3 cursor-pointer">
+                    <button onclick="descargarPNG('${esc(e.qr_data_url)}','${num}')" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-500 active:scale-95 transition shadow-sm mt-3 cursor-pointer">
                         🖼️ Descargar imagen QR${total > 1 ? ' ' + num : ''}
                     </button>
                 </div>

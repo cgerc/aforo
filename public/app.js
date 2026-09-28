@@ -12,6 +12,13 @@ let currentIndex = 0;
 
 
 
+// [SEGURIDAD] A3: escapa texto proveniente de BD/API antes de insertarlo en HTML.
+function esc(valor) {
+    return String(valor ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
 // Función de ayuda para normalizar texto (evita errores con tildes y mayúsculas)
 
 function normalizarTexto(texto) {
@@ -58,7 +65,7 @@ function renderizarSesion() {
 
         const nombre = usuario?.nombre || 'Organizador';
 
-        contenedor.innerHTML = `<a href="dashboard.html" class="text-amber-400 hover:text-amber-300 transition">Hola, ${nombre}</a>`;
+        contenedor.innerHTML = `<a href="dashboard.html" class="text-amber-400 hover:text-amber-300 transition">Hola, ${esc(nombre)}</a>`;
 
         return;
 
@@ -369,7 +376,7 @@ container.innerHTML = '';
 
             slidePub.innerHTML = `
 
-                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${ev.titulo || 'Publicidad'}">
+                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${esc(ev.titulo || 'Publicidad')}">
 
             `;
 
@@ -411,25 +418,25 @@ container.innerHTML = '';
 
             <div class="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent z-10"></div>
 
-            <img src="${flyer}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${ev.titulo}">
+            <img src="${flyer}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${esc(ev.titulo)}">
 
             <div class="relative z-20 px-8 md:px-16 max-w-2xl text-white carousel-content">
 
-                <span class="inline-block bg-[#A0E1C9] text-[#065F46] text-sm font-bold uppercase tracking-wider px-7 py-3 rounded-full mb-3">${ev.categoria || 'Evento'}</span>
+                <span class="inline-block bg-[#A0E1C9] text-[#065F46] text-sm font-bold uppercase tracking-wider px-7 py-3 rounded-full mb-3">${esc(ev.categoria || 'Evento')}</span>
 
-                <h1 class="text-3xl md:text-4xl font-extrabold text-white leading-tight mb-3">${ev.titulo}</h1>
+                <h1 class="text-3xl md:text-4xl font-extrabold text-white leading-tight mb-3">${esc(ev.titulo)}</h1>
 
                 <div class="flex items-center gap-2 mb-2">
                     <svg class="w-4 h-4 text-slate-200 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    <span class="text-sm font-medium text-slate-100">${fechaFormateada.replace('📅 ', '').replace('⏰ ', '')}</span>
+                    <span class="text-sm font-medium text-slate-100">${esc(fechaFormateada.replace('📅 ', '').replace('⏰ ', ''))}</span>
                 </div>
 
                 <div class="flex items-center gap-2 mb-4">
                     <svg class="w-4 h-4 text-slate-200 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
-                    <span class="text-sm font-medium text-slate-100">${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()}) — Desde $${precioMin.toLocaleString('es-CL')} CLP</span>
+                    <span class="text-sm font-medium text-slate-100">${esc(ev.direccion)} (${esc((ev.comuna || '').toUpperCase())}) — Desde $${precioMin.toLocaleString('es-CL')} CLP</span>
                 </div>
 
-                <p class="text-sm text-slate-200 line-clamp-2 mb-6">${ev.descripcion || ''}</p>
+                <p class="text-sm text-slate-200 line-clamp-2 mb-6">${esc(ev.descripcion || '')}</p>
 
                 <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="rounded-full ${estaSinCupo(ev) ? 'bg-zinc-500 hover:bg-zinc-500 opacity-80 cursor-not-allowed' : 'bg-[#26B488] hover:bg-[#1FA078] cursor-pointer'} text-white font-bold px-7 py-3 text-sm uppercase tracking-wider transition-all shadow-md active:scale-95">
                     ${estaSinCupo(ev) ? 'Sin cupo — Separa tu cupo para el próximo taller' : 'Próximamente — Recibe mayor información aquí'}
@@ -598,7 +605,7 @@ function renderizarGrillasPorCategoria(lista = eventosData) {
 
                 <div class="w-full bg-zinc-100 rounded-2xl h-64 flex items-center justify-center text-gray-400 font-bold mb-3 overflow-hidden relative">
 
-                    <img src="${flyerImg}" class="w-full h-full object-cover rounded-2xl" alt="${ev.titulo}">
+                    <img src="${flyerImg}" class="w-full h-full object-cover rounded-2xl" alt="${esc(ev.titulo)}">
 
                 </div>
 
@@ -606,13 +613,13 @@ function renderizarGrillasPorCategoria(lista = eventosData) {
 
                 <div class="bg-[#A0E1C9]/30 text-[#065F46] rounded-full px-3 py-1.5 text-xs font-bold mb-4 w-fit">
 
-                    ${fechaFormateada}
+                    ${esc(fechaFormateada)}
 
                 </div>
 
                
 
-                <h3 class="text-xl font-black text-slate-900 mb-1">${ev.titulo}</h3>
+                <h3 class="text-xl font-black text-slate-900 mb-1">${esc(ev.titulo)}</h3>
 
                 <p class="text-slate-900 font-black text-lg mb-6">$${precioMin.toLocaleString('es-CL')} CLP</p>
 

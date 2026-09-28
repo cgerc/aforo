@@ -1,5 +1,6 @@
 ﻿// routes/auth.js
 import express from 'express';
+import crypto from 'crypto';
 import { Resend } from 'resend';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -34,7 +35,8 @@ async function sendVerificationEmail(to, code) {
 }
 
 function generateVerificationCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  // [SEGURIDAD] M1: número aleatorio criptográficamente seguro (nunca Math.random).
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 router.post('/register', limitRegister, async (req, res) => {
@@ -71,6 +73,9 @@ router.post('/register', limitRegister, async (req, res) => {
     const codigo = generateVerificationCode();
     const expira = Date.now() + verificationTTL;
 
+    // [SEGURIDAD] M2: nunca persistir el password en texto plano. Se guarda el
+    // hash bcrypt y verify-email lo usa directamente al crear el usuario.
+    const hashedPassword = await bcrypt.hash(password, 10);
     await pool.query(
       `INSERT INTO registros_pendientes (email, nombre, apellido, empresa, telefono, password, evento, codigo, expira)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -84,7 +89,7 @@ router.post('/register', limitRegister, async (req, res) => {
                      codigo = EXCLUDED.codigo,
                      expira = EXCLUDED.expira,
                      created_at = NOW();`,
-      [email, nombre, apellido, empresa, telefono, password, JSON.stringify(evento), codigo, expira]
+      [email, nombre, apellido, empresa, telefono, hashedPassword, JSON.stringify(evento), codigo, expira]
     );
 
     await sendVerificationEmail(email, codigo);
@@ -125,7 +130,8 @@ router.post('/verify-email', limitVerify, async (req, res) => {
       return res.status(400).json({ error: 'El código ha expirado. Solicita uno nuevo.' });
     }
 
-    const hashedPassword = await bcrypt.hash(registro.password, 10);
+    // [SEGURIDAD] M2: `password` ya está hasheado (se guardó el hash en register).
+    const hashedPassword = registro.password;
 
     const client = await pool.connect();
     try {

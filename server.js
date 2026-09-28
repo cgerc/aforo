@@ -369,6 +369,10 @@ async function obtenerPagoAprobadoDeOrden(order) {
 }
 
 // Middlewares globales
+// [SEGURIDAD] A7: confiar solo en el primer proxy (Vercel). En localhost sin
+// X-Forwarded-For req.ip vuelve a la IP real; en Vercel permite rate limit por IP real.
+app.set('trust proxy', 1);
+
 // [SEGURIDAD] Helmet con CSP desactivado a propósito: las páginas usan CDN de Tailwind
 // y scripts inline (ticket.html, confirmacion.html, index.html). El resto de headers se conserva.
 app.use(helmet({ contentSecurityPolicy: false }));

@@ -303,6 +303,8 @@
 
         function cerrarSesion() {
             if (confirm("¿Estás seguro de que deseas cerrar sesión y regresar al inicio?")) {
+                // [SEGURIDAD] Limpia también la cookie HttpOnly de sesión en el servidor.
+                try { fetch('/api/auth/logout', { method: 'POST' }).catch(() => {}); } catch (e) {}
                 localStorage.removeItem('usuario_autenticado');
                 localStorage.removeItem('token_ticketera');
                 localStorage.removeItem('usuario_ticketera');

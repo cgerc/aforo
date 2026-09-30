@@ -60,8 +60,9 @@
         const params = new URLSearchParams(window.location.search);
         const orderId = params.get('order_id') || params.get('external_reference');
 
-        // [SEGURIDAD] Token de acceso a la orden: desde la URL (back_url de MP) o memoria.
-        let accessToken = params.get('at') || localStorage.getItem('orden_at_' + (orderId || '')) || '';
+        // [SEGURIDAD] Token de acceso a la orden: desde la URL (at legacy o t temporal
+        // firmado por el back_url de MP) o memoria localStorage.
+        let accessToken = params.get('at') || params.get('t') || localStorage.getItem('orden_at_' + (orderId || '')) || '';
 
         function headersOrden(extra) {
             const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});

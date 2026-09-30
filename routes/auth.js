@@ -252,6 +252,16 @@ router.post('/login', limitLogin, async (req, res) => {
 
     const token = jwt.sign({ id: user.id, email: user.email }, jwtSecret, { expiresIn: '8h' });
 
+    // [SEGURIDAD] Cookie HttpOnly de sesión (paralela al JSON token: no rompe
+    // login.html que sigue usando localStorage). Secure solo bajo HTTPS.
+    res.cookie('org_session', token, {
+      httpOnly: true,
+      secure: !!req.secure,
+      sameSite: 'lax',
+      maxAge: 8 * 60 * 60 * 1000,
+      path: '/'
+    });
+
     return res.json({
       token,
       usuario: {
@@ -267,6 +277,12 @@ router.post('/login', limitLogin, async (req, res) => {
     console.error('Error en /api/auth/login:', error);
     return res.status(500).json({ error: error.message || 'No se pudo iniciar sesión.' });
   }
+});
+
+// [SEGURIDAD] Limpia la cookie HttpOnly de sesión (el frontend además borra localStorage).
+router.post('/logout', (req, res) => {
+  res.clearCookie('org_session', { path: '/' });
+  return res.json({ ok: true });
 });
 
 export default router;

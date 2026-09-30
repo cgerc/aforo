@@ -111,11 +111,31 @@ si una operación destructiva es imprescindible, exige:
   `checkout.html`, `confirmacion.html`, `validador.html`) → helper `esc()`.
 - Confianza en proxies para rate limit: `app.set('trust proxy', 1)` (solo primer
   proxy; en localhost `req.ip` sigue siendo la IP real).
+- Exposición del token de acceso de orden (`at`) en URL de retorno de Mercado Pago
+  → el `back_urls.success` ya no lleva el `at`; lleva un `t` temporal firmado
+  (JWT `12h`, scope `confirm`) que solo habilita confirmar/ver esa orden. El `at`
+  se entrega por JSON/localStorage. `confirm-payment` acepta `at` o `t` por
+  body/query/headers y `x-order-confirm`.
+- Sin CSP: contenido externo (Tailwind CDN, html2pdf, jsQR, html5-qrcode,
+  Mercado Pago SDK, fuentes, OpenStreetMap nominatim, tiles ArcGIS) → `helmet`
+  CSP con allowlist (fuentes externas + `'unsafe-inline'`/`'unsafe-eval'`),
+  `object-src 'none'`, `base-uri 'self'`, interleaks de navegador bloqueados.
+- Sesiones solo en JSON/localStorage (vulnerables a XSS) → se añade cookie
+  `org_session` HttpOnly en paralelo: `requireAuth` y `accesoOrdenPermitido`
+  aceptan la cookie además del Bearer. El JSON se mantiene (migración gradual,
+  sin cookie-only). `POST /api/auth/logout` borra la cookie.
+- `registros_pendientes` sin limpieza → job cron diario (04:00) que borra
+  `WHERE expira < now()` (con `WHERE`, no masivo).
+- Sin pruebas automatizadas → suite `node --test` en `test/` (helpers de token de
+  orden, token temporal `t`, expiración de tickets, firma de webhook, rate limit);
+  `npm test`. Los helpers puros viven en `utils/seguridad.js`.
 
 ### Pendientes (sugeridos)
-- Expiración/borrado de `registros_pendientes` sin verificar.
-- Pruebas automatizadas (unit/regresión) de los flujos de pago y validación.
-- `helmet` CSP (deshabilitada a día de hoy) y cookies HttpOnly para sesiones/reenvíos.
+- Migrar sesiones a cookie-only (HttpOnly) y quitar el JSON de localStorage.
+- HSTS/`trust proxy` por dominio, headers de integridad (SRI) en CDNs si se decide
+  auto-hospedar los assets.
+- Auditoría del contenido de `innerHTML` en `public/` para mover a manipulación
+  con `textContent`/`createElement` (eliminar `unsafe-inline` a futuro).
 
 ## 6. Checklist de verificación post-cambio
 1. `node --check server.js db.js` (y `routes/*.js`).

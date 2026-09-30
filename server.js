@@ -10,11 +10,13 @@ import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import jwt from 'jsonwebtoken';
 import QRCode from 'qrcode';
 import { Resend } from 'resend';
+import cron from 'node-cron';
 import { initDb, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats, createTickets, getTicketsByOrder, getTicketByToken, getTicketByUuid, countPendingTickets, countTicketsByOrder, markTicketUsedAtomic, finalizePaidOrder } from './db.js';
 
 // Importar middleware de autenticación
 import { requireAuth, usuarioEsDuenoDeEvento } from './middleware/auth.js';
 import { rateLimit, consumirBucket } from './middleware/rateLimit.js';
+import { crearTokenOrden, calcularExpTicket, crearFirmaWebhookValida } from './utils/seguridad.js';
 
 // Importar rutas de autenticación
 import authRoutes from './routes/auth.js';
@@ -48,18 +50,9 @@ if (!qrSecret) {
   process.exit(1);
 }
 
-// Token de acceso por orden (HMAC determinista, sin cambios de esquema).
-// Se entrega al comprador y protege QR/entradas/reenvío contra enumeración de IDs.
-function orderAccessToken(orderId) {
-  return crypto.createHmac('sha256', qrSecret).update(String(orderId)).digest('hex');
-}
-function orderAccessOk(orderId, provided) {
-  if (!provided) return false;
-  const expected = orderAccessToken(orderId);
-  const a = Buffer.from(String(provided));
-  const b = Buffer.from(expected);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
+// Helpers puros de seguridad (token de orden, expiración de tickets, firma de webhook).
+const { orderAccessToken, orderAccessOk, orderConfirmToken, orderConfirmTokenOk } = crearTokenOrden(qrSecret);
+
 function tokenDeOrdenValido(order, token) {
   if (!token || !order) return false;
   if (order.qr_token && String(order.qr_token) === String(token)) return true;
@@ -71,31 +64,42 @@ function tokenDeOrdenValido(order, token) {
   }
 }
 async function accesoOrdenPermitido(req, order, accessFromBodyOrQuery) {
-  const at = accessFromBodyOrQuery || req.query?.at || req.body?.at || req.get('x-order-access') || '';
-  if (orderAccessOk(order.id, at)) return true;
+  const bodyOrQuery = accessFromBodyOrQuery || req.query?.at || req.body?.at || req.query?.t || req.body?.t || '';
+  if (bodyOrQuery && (orderAccessOk(order.id, bodyOrQuery) || orderConfirmTokenOk(order.id, bodyOrQuery))) return true;
+
+  // Headers: x-order-access (lleva `at` permanente o el `t` temporal firmado)
+  // y x-order-confirm (t temporal firrado explícito).
+  const headerAt = req.get('x-order-access') || '';
+  const headerT = req.get('x-order-confirm') || '';
+  if (headerAt && (orderAccessOk(order.id, headerAt) || orderConfirmTokenOk(order.id, headerAt))) return true;
+  if (headerT && orderConfirmTokenOk(order.id, headerT)) return true;
 
   const authHeader = req.headers?.authorization || '';
-  if (authHeader.startsWith('Bearer ')) {
+  let bearerToken = '';
+  if (authHeader.startsWith('Bearer ')) bearerToken = authHeader.split(' ')[1];
+
+  const cookieToken = (() => {
+    const raw = req.headers?.cookie || '';
+    for (const parte of raw.split(';')) {
+      const idx = parte.indexOf('=');
+      if (idx === -1) continue;
+      if (parte.slice(0, idx).trim() === 'org_session') {
+        try { return decodeURIComponent(parte.slice(idx + 1).trim()); } catch (_) { return ''; }
+      }
+    }
+    return '';
+  })();
+
+  for (const token of [bearerToken, cookieToken]) {
+    if (!token) continue;
     try {
-      const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+      const decoded = jwt.verify(token, JWT_SECRET);
       if (decoded?.id && await usuarioEsDuenoDeEvento(decoded.id, order.taller_id)) return true;
     } catch (_) {}
   }
 
   const tokenParam = req.query?.token || req.body?.token;
   return tokenDeOrdenValido(order, tokenParam);
-}
-
-// Expiración de los QRs de entrada: fin del día del taller + 1 día.
-function calcularExpTicket(fechaTaller) {
-  let base = null;
-  if (fechaTaller) {
-    const d = new Date(String(fechaTaller).slice(0, 10) + 'T23:59:59');
-    if (!isNaN(d.getTime())) base = d;
-  }
-  if (!base) base = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  else base.setDate(base.getDate() + 1);
-  return Math.floor(base.getTime() / 1000);
 }
 
 // 1. Configuración de Supabase
@@ -134,38 +138,7 @@ if (mpWebhookSecret) {
 } else {
   console.warn('⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado: el webhook rechazará las notificaciones (fail-closed). Define el secreto en .env para que procese pagos.');
 }
-
-function firmaWebhookValida(req) {
-  const firma = String(req.get('x-signature') || '');
-  const requestId = String(req.get('x-request-id') || '');
-  const tsMatch = firma.match(/(?:^|;)ts=([^;]+)/);
-  const v1Match = firma.match(/(?:^|;)v1=([^;]+)/);
-  if (!tsMatch || !v1Match || !requestId) return false;
-  // [SEGURIDAD] Anti-replay: el ts firmado no puede ser antiguo ni futuro (±5 min).
-  const tsNum = Number(tsMatch[1]);
-  if (!Number.isFinite(tsNum)) return false;
-  const desviacionSec = Math.abs(Date.now() / 1000 - tsNum);
-  if (desviacionSec > 5 * 60) {
-    console.warn('Webhook MP con ts fuera de ventana (posible replay):', Math.round(desviacionSec), 's');
-    return false;
-  }
-  let dataId = '';
-  if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
-    dataId = req.body?.data?.id ?? req.body?.id ?? '';
-  } else {
-    try {
-      const parseado = JSON.parse(req.body.toString());
-      dataId = parseado?.data?.id ?? parseado?.id ?? '';
-    } catch (e) {
-      dataId = req.query?.id || '';
-    }
-  }
-  const firmaString = `id:${dataId};request-id:${requestId};ts:${tsMatch[1]};`;
-  const esperada = crypto.createHmac('sha256', mpWebhookSecret).update(firmaString).digest('hex');
-  const a = Buffer.from(String(v1Match[1]));
-  const b = Buffer.from(esperada);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
+const firmaWebhookValida = crearFirmaWebhookValida(mpWebhookSecret);
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -373,9 +346,41 @@ async function obtenerPagoAprobadoDeOrden(order) {
 // X-Forwarded-For req.ip vuelve a la IP real; en Vercel permite rate limit por IP real.
 app.set('trust proxy', 1);
 
-// [SEGURIDAD] Helmet con CSP desactivado a propósito: las páginas usan CDN de Tailwind
-// y scripts inline (ticket.html, confirmacion.html, index.html). El resto de headers se conserva.
-app.use(helmet({ contentSecurityPolicy: false }));
+// [SEGURIDAD] CSP con allowlist: permite los CDN/scripts/estilos inline usados por
+// las páginas (Tailwind Play CDN requiere unsafe-inline+unsafe-eval; html2pdf y
+// jsQR vienen de cdnjs/jsdelivr; MP SDK de sdk.mercadopago.com). Bloquea cualquier
+// otro dominio no listado (defensa en profundidad contra inyección de terceros).
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      'default-src': ["'self'"],
+      'script-src': [
+        "'self'", "'unsafe-inline'", "'unsafe-eval'",
+        'https://cdn.tailwindcss.com',
+        'https://cdnjs.cloudflare.com',
+        'https://cdn.jsdelivr.net',
+        'https://unpkg.com',
+        'https://sdk.mercadopago.com'
+      ],
+      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      'img-src': ["'self'", 'data:', 'blob:', 'https:', 'http:'],
+      'connect-src': [
+        "'self'",
+        'https://sdk.mercadopago.com',
+        'https://api.mercadopago.com',
+        'https://nominatim.openstreetmap.org',
+        'https://server.arcgisonline.com'
+      ],
+      'frame-src': ["'self'", 'https://*.mercadopago.com'],
+      'form-action': ["'self'", 'https://*.mercadopago.com'],
+      'object-src': ["'none'"],
+      'base-uri': ["'self'"],
+      'upgrade-insecure-requests': []
+    }
+  }
+}));
 
 // [SEGURIDAD] CORS restrictivo: solo CLIENT_URL y localhost de desarrollo.
 const origenesPermitidos = [
@@ -1013,6 +1018,9 @@ app.post('/api/create-preference', async (req, res) => {
     }
 
     const accessToken = orderAccessToken(order.id);
+    // [SEGURIDAD] A5: la URL de retorno lleva un token temporal firmado (`t`),
+    // no el `at` permanente. `at` solo viaja por JSON (create-preference) y localStorage.
+    const confirmToken = orderConfirmToken(order.id);
 
     const clientUrl = process.env.CLIENT_URL || `https://${req.get('host')}`;
     const webhookUrl = process.env.WEBHOOK_URL || null;
@@ -1035,7 +1043,7 @@ app.post('/api/create-preference', async (req, res) => {
         },
         external_reference: String(order.id),
         back_urls: {
-          success: `${clientUrl}/confirmacion.html?order_id=${order.id}&at=${accessToken}`,
+          success: `${clientUrl}/confirmacion.html?order_id=${order.id}&t=${confirmToken}`,
           failure: `${clientUrl}/checkout.html`,
           pending: `${clientUrl}/checkout.html`
         },
@@ -1972,6 +1980,20 @@ initDb()
       console.error('Error al iniciar el servidor:', error.message || error);
       process.exit(1);
     });
+
+    // [SEGURIDAD] Limpieza diaria de registros_pendientes expirados (DELETE con WHERE,
+    // no masivo). Evita acumulación de intentos de registro sin verificar.
+    const limpiarPendientesExpirados = async () => {
+      if (!pool) return;
+      try {
+        const { rowCount } = await pool.query('DELETE FROM registros_pendientes WHERE expira < $1', [Date.now()]);
+        if (rowCount > 0) console.log(`🧹 Registros pendientes expirados eliminados: ${rowCount}`);
+      } catch (e) {
+        console.warn('No se pudieron limpiar registros pendientes expirados:', e.message);
+      }
+    };
+    cron.schedule('0 4 * * *', limpiarPendientesExpirados);
+    setTimeout(limpiarPendientesExpirados, 30 * 60 * 1000);
   })
   .catch((err) => {
     console.error('No se pudo inicializar la base de datos local (usando Supabase por defecto):', err.message || err);

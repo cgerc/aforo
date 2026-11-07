@@ -17,15 +17,19 @@ export function leerCookie(req, nombre) {
   return '';
 }
 
+export function leerTokenSesion(req) {
+  const authHeader = req.headers?.authorization;
+  const headerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : '';
+  const cookieToken = leerCookie(req, 'org_session');
+  return headerToken || cookieToken || '';
+}
+
 export function requireAuth(req, res, next) {
   if (!jwtSecret) {
     return res.status(500).json({ error: 'JWT_SECRET no configurado en el servidor.' });
   }
 
-  const authHeader = req.headers.authorization;
-  const headerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : '';
-  const cookieToken = leerCookie(req, 'org_session');
-  const token = headerToken || cookieToken;
+  const token = leerTokenSesion(req);
   if (!token) {
     return res.status(401).json({ error: 'Token de autenticación requerido.' });
   }

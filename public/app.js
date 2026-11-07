@@ -61,7 +61,7 @@ function renderizarSesion() {
 
 
 
-    if (localStorage.getItem('token_ticketera')) {
+    if (localStorage.getItem('usuario_autenticado')) {
 
         const nombre = usuario?.nombre || 'Organizador';
 
@@ -253,19 +253,19 @@ function renderizarMarcadoresMapa(lista = eventosData) {
 
                 <div class="text-[#1E293B] font-sans p-1 min-w-[180px]">
 
-                    <strong class="text-sm block font-bold mb-1">${ev.titulo}</strong>
+                    <strong class="text-sm block font-bold mb-1">${esc(ev.titulo)}</strong>
 
-                    <p class="text-xs text-[#64748B] mb-1">${fechaTxt}</p>
+                    <p class="text-xs text-[#64748B] mb-1">${esc(fechaTxt)}</p>
 
-                    <p class="text-xs text-[#64748B] mb-2">📍 ${ev.direccion || ''} (${(ev.comuna || '').toUpperCase()})</p>
+                    <p class="text-xs text-[#64748B] mb-2">📍 ${esc(ev.direccion || '')} (${esc((ev.comuna || '').toUpperCase())})</p>
 
-                    <a href="https://www.google.com/maps?q=${ev.lat},${ev.lng}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[10px] font-bold text-[#26B488] hover:text-[#1FA078] underline mb-3 cursor-pointer">
+                    <a href="https://www.google.com/maps?q=${Number(ev.lat)},${Number(ev.lng)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[10px] font-bold text-[#26B488] hover:text-[#1FA078] underline mb-3 cursor-pointer">
                         Abrir en Google Maps
                     </a>
 
-                    <p class="text-xs font-black text-[#1E293B] mb-3">Desde $${precioMin.toLocaleString('es-CL')} CLP</p>
+                    <p class="text-xs font-black text-[#1E293B] mb-3">Desde $${Number(precioMin).toLocaleString('es-CL')} CLP</p>
 
-                    <button onclick="irAlCheckout(${ev.id})" class="w-full bg-[#26B488] hover:bg-[#1FA078] text-white font-bold text-xs py-2 px-3 rounded-full cursor-pointer uppercase tracking-wider transition shadow active:scale-95">
+                    <button onclick="irAlCheckout(${Number(ev.id)})" class="w-full bg-[#26B488] hover:bg-[#1FA078] text-white font-bold text-xs py-2 px-3 rounded-full cursor-pointer uppercase tracking-wider transition shadow active:scale-95">
 
                         Comprar entradas
 
@@ -376,7 +376,7 @@ container.innerHTML = '';
 
             slidePub.innerHTML = `
 
-                <img src="${imagenPub}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${esc(ev.titulo || 'Publicidad')}">
+                <img src="${esc(imagenPub)}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${esc(ev.titulo || 'Publicidad')}">
 
             `;
 
@@ -418,7 +418,7 @@ container.innerHTML = '';
 
             <div class="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent z-10"></div>
 
-            <img src="${flyer}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${esc(ev.titulo)}">
+            <img src="${esc(flyer)}" class="absolute inset-0 w-full h-full object-cover object-center" alt="${esc(ev.titulo)}">
 
             <div class="relative z-20 px-8 md:px-16 max-w-2xl text-white carousel-content">
 
@@ -433,12 +433,12 @@ container.innerHTML = '';
 
                 <div class="flex items-center gap-2 mb-4">
                     <svg class="w-4 h-4 text-slate-200 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
-                    <span class="text-sm font-medium text-slate-100">${esc(ev.direccion)} (${esc((ev.comuna || '').toUpperCase())}) — Desde $${precioMin.toLocaleString('es-CL')} CLP</span>
+                    <span class="text-sm font-medium text-slate-100">${esc(ev.direccion)} (${esc((ev.comuna || '').toUpperCase())}) — Desde $${Number(precioMin).toLocaleString('es-CL')} CLP</span>
                 </div>
 
                 <p class="text-sm text-slate-200 line-clamp-2 mb-6">${esc(ev.descripcion || '')}</p>
 
-                <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="rounded-full ${estaSinCupo(ev) ? 'bg-zinc-500 hover:bg-zinc-500 opacity-80 cursor-not-allowed' : 'bg-[#26B488] hover:bg-[#1FA078] cursor-pointer'} text-white font-bold px-7 py-3 text-sm uppercase tracking-wider transition-all shadow-md active:scale-95">
+                <button onclick="abrirModalInscripcion(${Number(ev.id)})" class="rounded-full ${estaSinCupo(ev) ? 'bg-zinc-500 hover:bg-zinc-500 opacity-80 cursor-not-allowed' : 'bg-[#26B488] hover:bg-[#1FA078] cursor-pointer'} text-white font-bold px-7 py-3 text-sm uppercase tracking-wider transition-all shadow-md active:scale-95">
                     ${estaSinCupo(ev) ? 'Sin cupo — Separa tu cupo para el próximo taller' : 'Próximamente — Recibe mayor información aquí'}
                 </button>
 
@@ -605,7 +605,7 @@ function renderizarGrillasPorCategoria(lista = eventosData) {
 
                 <div class="w-full bg-zinc-100 rounded-2xl h-64 flex items-center justify-center text-gray-400 font-bold mb-3 overflow-hidden relative">
 
-                    <img src="${flyerImg}" class="w-full h-full object-cover rounded-2xl" alt="${esc(ev.titulo)}">
+                    <img src="${esc(flyerImg)}" class="w-full h-full object-cover rounded-2xl" alt="${esc(ev.titulo)}">
 
                 </div>
 
@@ -621,13 +621,13 @@ function renderizarGrillasPorCategoria(lista = eventosData) {
 
                 <h3 class="text-xl font-black text-slate-900 mb-1">${esc(ev.titulo)}</h3>
 
-                <p class="text-slate-900 font-black text-lg mb-6">$${precioMin.toLocaleString('es-CL')} CLP</p>
+                <p class="text-slate-900 font-black text-lg mb-6">$${Number(precioMin).toLocaleString('es-CL')} CLP</p>
 
                 <div class="w-full space-y-2 mt-auto">
-                    <button onclick="abrirModalInscripcion(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="w-full ${estaSinCupo(ev) ? 'bg-zinc-200 hover:bg-zinc-200 text-zinc-500 border-zinc-200 cursor-not-allowed' : 'bg-[#A0E1C9]/20 hover:bg-[#A0E1C9]/40 text-[#1B5E4B] border-[#A0E1C9] cursor-pointer'} font-bold py-2.5 rounded-xl uppercase tracking-wider text-xs transition-colors border">
+                    <button onclick="abrirModalInscripcion(${Number(ev.id)})" class="w-full ${estaSinCupo(ev) ? 'bg-zinc-200 hover:bg-zinc-200 text-zinc-500 border-zinc-200 cursor-not-allowed' : 'bg-[#A0E1C9]/20 hover:bg-[#A0E1C9]/40 text-[#1B5E4B] border-[#A0E1C9] cursor-pointer'} font-bold py-2.5 rounded-xl uppercase tracking-wider text-xs transition-colors border">
                         ${estaSinCupo(ev) ? 'Sin cupo — Separa tu cupo para el próximo taller' : 'Próximamente — Recibe mayor información'}
                     </button>
-                    <button onclick="${estaSinCupo(ev) ? 'return false' : `irAlCheckout(${ev.id})`}" ${estaSinCupo(ev) ? 'disabled' : ''} class="w-full ${estaSinCupo(ev) ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed shadow-none' : 'bg-[#26B488] hover:bg-[#1FA078] text-white shadow-md active:scale-95 cursor-pointer'} font-bold py-3 rounded-xl uppercase tracking-wider text-sm transition-colors">
+                    <button onclick="${estaSinCupo(ev) ? 'return false' : `irAlCheckout(${Number(ev.id)})`}" ${estaSinCupo(ev) ? 'disabled' : ''} class="w-full ${estaSinCupo(ev) ? 'bg-zinc-300 text-zinc-500 cursor-not-allowed shadow-none' : 'bg-[#26B488] hover:bg-[#1FA078] text-white shadow-md active:scale-95 cursor-pointer'} font-bold py-3 rounded-xl uppercase tracking-wider text-sm transition-colors">
                         ${estaSinCupo(ev) ? 'Sin cupos disponibles' : 'Comprar Entradas'}
                     </button>
                 </div>
@@ -862,7 +862,10 @@ function abrirModalInscripcion(eventoId, eventoNombre) {
 
     if (!modal) return;
 
-    titulo.textContent = eventoNombre;
+    // [SEGURIDAD] El título se busca en los datos ya cargados, nunca se
+    // interpola desde un atributo onclick.
+    const evento = eventosData.find((e) => String(e.id) === String(eventoId));
+    titulo.textContent = eventoNombre || evento?.titulo || '';
     inputId.value = eventoId || '';
     errorDiv.classList.add('hidden');
     exitoDiv.classList.add('hidden');

@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
@@ -11,12 +12,13 @@ import jwt from 'jsonwebtoken';
 import QRCode from 'qrcode';
 import { Resend } from 'resend';
 import cron from 'node-cron';
-import { initDb, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats, createTickets, getTicketsByOrder, getTicketByToken, getTicketByUuid, countPendingTickets, countTicketsByOrder, markTicketUsedAtomic, finalizePaidOrder } from './db.js';
+import { verificarConexion, pool, createOrder, getOrderById, getOrderByPreference, markOrderPaid, deductSeats, createTickets, getTicketsByOrder, getTicketByToken, getTicketByUuid, countPendingTickets, countTicketsByOrder, markTicketUsedAtomic, finalizePaidOrder } from './db.js';
 
 // Importar middleware de autenticación
-import { requireAuth, usuarioEsDuenoDeEvento } from './middleware/auth.js';
-import { rateLimit, consumirBucket } from './middleware/rateLimit.js';
+import { requireAuth, usuarioEsDuenoDeEvento, leerTokenSesion } from './middleware/auth.js';
+import { rateLimitCompartido as rateLimit } from './middleware/rateLimit.js';
 import { crearTokenOrden, calcularExpTicket, crearFirmaWebhookValida } from './utils/seguridad.js';
+import { validarImagen, validarEnlace } from './utils/validacion.js';
 
 // Importar rutas de autenticación
 import authRoutes from './routes/auth.js';
@@ -37,21 +39,31 @@ const app = express();
 const port = Number(process.env.PORT) || 3000;
 
 // [SEGURIDAD] Secretos obligatorios: NO hay fallbacks hardcodeados.
-// Sin JWT_SECRET el servidor no arranca (los tokens y QRs serían forjables).
+// Sin secretos suficientemente largos el servidor no arranca: con uno débil
+// se pueden forjar sesiones, tokens de orden y QRs.
+const MIN_SECRET_LENGTH = 32;
 const JWT_SECRET = process.env.JWT_SECRET || '';
-const qrSecret = process.env.QR_SECRET || JWT_SECRET || '';
+const qrSecret = process.env.QR_SECRET || '';
 
-if (!JWT_SECRET) {
-  console.error('[SEGURIDAD] Falta JWT_SECRET en .env. El servidor no puede arrancar sin secretos seguros.');
+function secretoSuficiente(valor) {
+  return typeof valor === 'string' && valor.length >= MIN_SECRET_LENGTH;
+}
+
+if (!secretoSuficiente(JWT_SECRET)) {
+  console.error(`[SEGURIDAD] JWT_SECRET ausente o demasiado corto (mínimo ${MIN_SECRET_LENGTH} caracteres). El servidor no puede arrancar sin secretos seguros.`);
   process.exit(1);
 }
-if (!qrSecret) {
-  console.error('[SEGURIDAD] Falta QR_SECRET/JWT_SECRET en .env. No se pueden emitir QRs seguros.');
+if (!secretoSuficiente(qrSecret)) {
+  console.error(`[SEGURIDAD] QR_SECRET ausente o demasiado corto (mínimo ${MIN_SECRET_LENGTH} caracteres). No se pueden emitir QRs seguros.`);
+  process.exit(1);
+}
+if (qrSecret === JWT_SECRET) {
+  console.error('[SEGURIDAD] QR_SECRET debe ser distinto de JWT_SECRET. Usa secretos independientes.');
   process.exit(1);
 }
 
 // Helpers puros de seguridad (token de orden, expiración de tickets, firma de webhook).
-const { orderAccessToken, orderAccessOk, orderConfirmToken, orderConfirmTokenOk } = crearTokenOrden(qrSecret);
+const { orderConfirmToken, orderConfirmTokenOk } = crearTokenOrden(qrSecret);
 
 function tokenDeOrdenValido(order, token) {
   if (!token || !order) return false;
@@ -65,13 +77,13 @@ function tokenDeOrdenValido(order, token) {
 }
 async function accesoOrdenPermitido(req, order, accessFromBodyOrQuery) {
   const bodyOrQuery = accessFromBodyOrQuery || req.query?.at || req.body?.at || req.query?.t || req.body?.t || '';
-  if (bodyOrQuery && (orderAccessOk(order.id, bodyOrQuery) || orderConfirmTokenOk(order.id, bodyOrQuery))) return true;
+  if (bodyOrQuery && orderConfirmTokenOk(order.id, bodyOrQuery)) return true;
 
-  // Headers: x-order-access (lleva `at` permanente o el `t` temporal firmado)
+  // Headers: x-order-access (solo acepta el token temporal firmado)
   // y x-order-confirm (t temporal firrado explícito).
   const headerAt = req.get('x-order-access') || '';
   const headerT = req.get('x-order-confirm') || '';
-  if (headerAt && (orderAccessOk(order.id, headerAt) || orderConfirmTokenOk(order.id, headerAt))) return true;
+  if (headerAt && orderConfirmTokenOk(order.id, headerAt)) return true;
   if (headerT && orderConfirmTokenOk(order.id, headerT)) return true;
 
   const authHeader = req.headers?.authorization || '';
@@ -127,9 +139,6 @@ if (mpAccessToken) {
 } else {
   console.warn('Mercado Pago no está configurado. Define MERCADOPAGO_ACCESS_TOKEN en tu .env');
 }
-console.log('>>> [DEBUG] process.env.MERCADOPAGO_ACCESS_TOKEN:', process.env.MERCADOPAGO_ACCESS_TOKEN ? 'Existe' : 'No encontrado (undefined)');
-console.log('>>> [DEBUG] mpClient inicializado:', Boolean(mpClient));
-
 // [SEGURIDAD] Secreto del webhook de MP. Obligatorio: sin él el webhook rechaza
 // las notificaciones (fail-closed). Con él se valida X-Signature + anti-replay.
 const mpWebhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET || '';
@@ -141,11 +150,6 @@ if (mpWebhookSecret) {
 const firmaWebhookValida = crearFirmaWebhookValida(mpWebhookSecret);
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-
-// [RESEND] Log de configuración al arrancar para detectar rápidamente
-// ausencia de API key o un remitente que no coincida con el dominio verificado.
-console.log('>>> [DEBUG] RESEND_API_KEY:', process.env.RESEND_API_KEY ? 'Configurada' : 'NO configurada');
-console.log('>>> [DEBUG] REMITENTE de correos (RESEND_FROM):', process.env.RESEND_FROM || 'Vive Ticket <contacto@viveticket.cl> (default)');
 
 const sanitizeText = (value) => {
   if (typeof value !== 'string') return '';
@@ -165,7 +169,39 @@ const redactEmail = (email) => {
   return `${local.slice(0, 2)}***@${dominio}`;
 };
 
-const baseUrl = process.env.CLIENT_URL || 'https://viveticket.cl';
+const baseUrl = (process.env.CLIENT_URL || 'https://viveticket.cl').replace(/\/+$/, '');
+const cronSecret = process.env.CRON_SECRET || '';
+
+function cronAutorizado(req) {
+  if (!cronSecret) return false;
+  const provided = String(req.get('authorization') || '');
+  const expected = `Bearer ${cronSecret}`;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Limpieza idempotente de datos temporales. Se ejecuta por Vercel Cron en
+// producción y por node-cron en VPS/local.
+async function limpiarDatosExpirados() {
+  let pendientes = 0;
+  let rateLimits = 0;
+  try {
+    const { rowCount } = await pool.query('DELETE FROM registros_pendientes WHERE expira < $1', [Date.now()]);
+    pendientes = rowCount || 0;
+    if (pendientes > 0) console.log(`🧹 Registros pendientes expirados eliminados: ${pendientes}`);
+  } catch (e) {
+    console.warn('No se pudieron limpiar registros pendientes expirados:', e.message);
+  }
+  try {
+    const { rowCount } = await pool.query('DELETE FROM rate_limits WHERE reset_at < $1', [Date.now() - 24 * 60 * 60 * 1000]);
+    rateLimits = rowCount || 0;
+    if (rateLimits > 0) console.log(`🧹 Rate limits antiguos eliminados: ${rateLimits}`);
+  } catch (e) {
+    console.warn('No se pudieron limpiar rate limits antiguos:', e.message);
+  }
+  return { pendientes, rateLimits };
+}
 
 // --- Helpers compartidos (entradas / QR por ticket) ---
 function normalizarFecha(f) {
@@ -346,45 +382,63 @@ async function obtenerPagoAprobadoDeOrden(order) {
 // X-Forwarded-For req.ip vuelve a la IP real; en Vercel permite rate limit por IP real.
 app.set('trust proxy', 1);
 
-// [SEGURIDAD] CSP con allowlist: permite los CDN/scripts/estilos inline usados por
-// las páginas (Tailwind Play CDN requiere unsafe-inline+unsafe-eval; html2pdf y
-// jsQR vienen de cdnjs/jsdelivr; MP SDK de sdk.mercadopago.com). Bloquea cualquier
-// otro dominio no listado (defensa en profundidad contra inyección de terceros).
-app.use(helmet({
-  contentSecurityPolicy: {
-    useDefaults: false,
-    directives: {
-      'default-src': ["'self'"],
-      'script-src': [
-        "'self'", "'unsafe-inline'", "'unsafe-eval'",
-        'https://cdn.tailwindcss.com',
-        'https://cdnjs.cloudflare.com',
-        'https://cdn.jsdelivr.net',
-        'https://unpkg.com',
-        'https://sdk.mercadopago.com'
-      ],
-      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-      'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
-      'img-src': ["'self'", 'data:', 'blob:', 'https:', 'http:'],
-      'connect-src': [
-        "'self'",
-        'https://sdk.mercadopago.com',
-        'https://api.mercadopago.com',
-        'https://nominatim.openstreetmap.org',
-        'https://server.arcgisonline.com'
-      ],
-      'frame-src': ["'self'", 'https://*.mercadopago.com'],
-      'form-action': ["'self'", 'https://*.mercadopago.com'],
-      'object-src': ["'none'"],
-      'base-uri': ["'self'"],
-      'upgrade-insecure-requests': []
-    }
-  }
-}));
+// [SEGURIDAD] CSP con nonce por respuesta. Los <script> inline reciben un nonce
+// aleatorio inyectado al servir el HTML; así se elimina 'unsafe-inline' para
+// scripts. Se mantiene 'unsafe-eval' porque Tailwind Play CDN lo necesita.
+// script-src-attr se deja por compatibilidad con handlers existentes (defensa en
+// profundidad: el vector principal se corrige escapando toda salida HTML).
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use((req, res, next) => {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  res.locals.cspNonce = nonce;
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://sdk.mercadopago.com`,
+    "script-src-attr 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob:",
+    "worker-src 'self' blob:",
+    "connect-src 'self' https://sdk.mercadopago.com https://api.mercadopago.com https://nominatim.openstreetmap.org https://server.arcgisonline.com",
+    "frame-src 'self' https://*.mercadopago.com",
+    "form-action 'self' https://*.mercadopago.com",
+    "frame-ancestors 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "upgrade-insecure-requests"
+  ].join('; '));
+  next();
+});
+
+// [SEGURIDAD] Inyecta el nonce en cada <script> inline antes de entregar HTML.
+function inyectarNonceHtml(html, nonce) {
+  return html.replace(/<script\b(?![^>]*\bsrc\s*=)([^>]*)>/gi, (match, attrs) => {
+    if (/\bnonce\s*=/i.test(attrs)) return match;
+    return `<script${attrs} nonce="${nonce}">`;
+  });
+}
+
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  let rel = req.path || '/';
+  if (rel === '/' || rel === '') rel = '/index.html';
+  if (!rel.toLowerCase().endsWith('.html')) return next();
+  const base = path.join(__dirname, 'views');
+  const file = path.normalize(path.join(base, rel));
+  if (!file.startsWith(base)) return next();
+  fs.readFile(file, 'utf8', (err, html) => {
+    if (err) return next();
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    res.type('html').send(inyectarNonceHtml(html, res.locals.cspNonce));
+  });
+});
 
 // [SEGURIDAD] CORS restrictivo: solo CLIENT_URL y localhost de desarrollo.
+let origenBase = baseUrl;
+try { origenBase = new URL(baseUrl).origin; } catch (_) {}
 const origenesPermitidos = [
-  (process.env.CLIENT_URL || 'https://viveticket.cl').replace(/\/+$/, ''),
+  origenBase,
   'http://localhost:3000',
   'http://127.0.0.1:3000'
 ];
@@ -399,11 +453,50 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ limit: '20mb', extended: true }));
+
+// [SEGURIDAD] CSRF: las peticiones de escritura con cookies deben venir del
+// origen permitido. Los webhooks de MP se validan por firma y quedan excluidos.
+const METODOS_SEGUROS = new Set(['GET', 'HEAD', 'OPTIONS']);
+app.use('/api', (req, res, next) => {
+  if (METODOS_SEGUROS.has(req.method)) return next();
+  if (req.path.startsWith('/webhook')) return next();
+
+  const origin = req.get('origin');
+  const referer = req.get('referer');
+  const origenValido = (valor) => {
+    try {
+      const origen = new URL(valor).origin;
+      if (origenesPermitidos.includes(origen)) return true;
+      // Mismo host real (incluye previews de Vercel y localhost).
+      const propio = `${req.protocol}://${req.get('host')}`;
+      return origen === propio;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  if (origin) {
+    return origenValido(origin)
+      ? next()
+      : res.status(403).json({ error: 'Origen no permitido.' });
+  }
+  if (referer) {
+    return origenValido(referer)
+      ? next()
+      : res.status(403).json({ error: 'Origen no permitido.' });
+  }
+  // Sin Origin/Referer: solo se permite si no hay cookies (clientes API).
+  if (req.headers.cookie) {
+    return res.status(403).json({ error: 'Origen requerido para peticiones con sesión.' });
+  }
+  return next();
+});
+
+app.use(express.json({ limit: '6mb' }));
+app.use(express.urlencoded({ limit: '6mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
+    if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
       res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     } else {
       res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -421,17 +514,37 @@ app.get('/favicon.ico', (req, res) => {
 // RUTAS API
 app.use('/api/auth', authRoutes);
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 // [SEGURIDAD] Health check sin filtrar estado interno (está públicamente expuesto).
 app.get('/health', async (req, res) => {
-  res.json({ ok: true, uptime: Math.round(process.uptime()), time: new Date().toISOString() });
+  try {
+    await pool.query('SELECT 1');
+    return res.json({ ok: true, uptime: Math.round(process.uptime()), time: new Date().toISOString() });
+  } catch (_) {
+    return res.status(503).json({ ok: false, error: 'Base de datos no disponible.' });
+  }
+});
+
+// [SEGURIDAD] Vercel Cron: limpieza diaria autenticada por CRON_SECRET.
+app.get('/api/internal/cleanup', async (req, res) => {
+  if (!cronSecret) {
+    return res.status(503).json({ ok: false, error: 'CRON_SECRET no configurado.' });
+  }
+  if (!cronAutorizado(req)) {
+    return res.status(401).json({ ok: false, error: 'No autorizado.' });
+  }
+  try {
+    const resultado = await limpiarDatosExpirados();
+    return res.json({ ok: true, ...resultado });
+  } catch (error) {
+    console.error('Error en limpieza programada:', error);
+    return res.status(500).json({ ok: false, error: 'Error interno.' });
+  }
 });
 
 // INSCRIPCIÓN A TALLER - Enviar correo a contacto@viveticket.cl
-app.post('/api/inscribir', async (req, res) => {
+app.post('/api/inscribir',
+  rateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyFn: (req) => `inscribir:${req.ip || 'x'}` }),
+  async (req, res) => {
   try {
     const nombre = sanitizeText(req.body.nombre);
     const celular = sanitizeText(req.body.celular);
@@ -495,7 +608,9 @@ app.post('/api/inscribir', async (req, res) => {
 
 // OBTENER TODOS LOS EVENTOS
 // [SEGURIDAD] Proyección explícita: NUNCA se exponen validador_token ni usuario_id.
-app.get('/api/eventos', async (req, res) => {
+app.get('/api/eventos',
+  rateLimit({ windowMs: 60 * 1000, max: 120, keyFn: (req) => `eventos:${req.ip || 'x'}` }),
+  async (req, res) => {
   try {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase no está configurado. Revisa SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en tu .env' });
@@ -510,7 +625,7 @@ app.get('/api/eventos', async (req, res) => {
 
     if (error) {
       console.error('Error al consultar eventos en Supabase:', error.message || error);
-      return res.status(500).json({ error: 'No se pudieron cargar los eventos', details: error.message || 'unknown' });
+      return res.status(500).json({ error: 'No se pudieron cargar los eventos.' });
     }
 
     const eventos = (data || []).map((evento) => ({
@@ -553,7 +668,7 @@ app.get('/api/eventos/mios', requireAuth, async (req, res) => {
 
     if (error) {
       console.error('Error al consultar eventos del usuario:', error.message || error);
-      return res.status(500).json({ error: 'No se pudieron cargar tus eventos', details: error.message });
+      return res.status(500).json({ error: 'No se pudieron cargar tus eventos.' });
     }
 
     const eventos = (data || []).map((evento) => ({
@@ -603,6 +718,12 @@ app.post('/api/eventos', requireAuth, async (req, res) => {
       profesionalImagen
     } = req.body;
 
+    const imagenValida = validarImagen(imagen);
+    const profImagenValida = validarImagen(profesionalImagen);
+    if (!imagenValida.ok || !profImagenValida.ok) {
+      return res.status(400).json({ error: 'La imagen o la foto del profesional no es una URL válida.' });
+    }
+
     const newEvent = {
       usuario_id: req.user.id,
       titulo: sanitizeText(titulo),
@@ -615,9 +736,9 @@ app.post('/api/eventos', requireAuth, async (req, res) => {
       lng: Number(lng) || null,
       categorias: Array.isArray(categorias) ? categorias : [],
       tickets_max: Number(ticketsMax) || 40,
-      imagen: imagen || null,
+      imagen: imagenValida.value ?? null,
       profesional_nombre: sanitizeText(profesionalNombre) || null,
-      profesional_imagen: profesionalImagen || null,
+      profesional_imagen: profImagenValida.value ?? null,
       validador_token: crypto.randomUUID()
     };
 
@@ -628,7 +749,7 @@ app.post('/api/eventos', requireAuth, async (req, res) => {
 
     if (error) {
       console.error('Error al crear evento en Supabase:', error.message || error);
-      return res.status(500).json({ error: 'No se pudo crear el evento', details: error.message });
+      return res.status(500).json({ error: 'No se pudo crear el evento.' });
     }
 
     return res.status(201).json({ message: 'Evento creado exitosamente', evento: data[0] });
@@ -678,6 +799,12 @@ app.put('/api/eventos/:id', requireAuth, async (req, res) => {
       profesionalImagen
     } = req.body;
 
+    const imagenValida = validarImagen(imagen);
+    const profImagenValida = validarImagen(profesionalImagen);
+    if (!imagenValida.ok || !profImagenValida.ok) {
+      return res.status(400).json({ error: 'La imagen o la foto del profesional no es una URL válida.' });
+    }
+
     const updateData = {
       titulo: sanitizeText(titulo),
       descripcion: sanitizeText(descripcion),
@@ -690,11 +817,11 @@ app.put('/api/eventos/:id', requireAuth, async (req, res) => {
       categorias: Array.isArray(categorias) ? categorias : [],
       tickets_max: Number(ticketsMax) || 40,
       profesional_nombre: sanitizeText(profesionalNombre) ?? null,
-      profesional_imagen: profesionalImagen ?? null
+      profesional_imagen: profImagenValida.value ?? null
     };
 
-    if (imagen) {
-      updateData.imagen = imagen;
+    if (imagenValida.value) {
+      updateData.imagen = imagenValida.value;
     }
 
     const { data, error } = await supabase
@@ -705,7 +832,7 @@ app.put('/api/eventos/:id', requireAuth, async (req, res) => {
 
     if (error) {
       console.error('Error al actualizar evento en Supabase:', error.message || error);
-      return res.status(500).json({ error: 'No se pudo actualizar el evento', details: error.message });
+      return res.status(500).json({ error: 'No se pudo actualizar el evento.' });
     }
 
     if (!data || data.length === 0) {
@@ -776,7 +903,7 @@ app.delete('/api/eventos/:id', requireAuth, async (req, res) => {
 
       if (error) {
         console.error('Error eliminando evento en Supabase:', error.message);
-        return res.status(500).json({ error: 'No se pudo eliminar el evento', details: error.message });
+        return res.status(500).json({ error: 'No se pudo eliminar el evento.' });
       }
     }
 
@@ -800,17 +927,19 @@ app.delete('/api/eventos/:id', requireAuth, async (req, res) => {
 // ==================== PUBLICIDAD (carrusel de la portada) ====================
 // GET publico: solo activas, la MAS RECIENTE primero (created_at desc)
 // Si llega un Bearer token valido (organizador), filtra por su usuario_id (para "Mis publicidades")
-app.get('/api/publicidad', async (req, res) => {
+app.get('/api/publicidad',
+  rateLimit({ windowMs: 60 * 1000, max: 120, keyFn: (req) => `publicidad:${req.ip || 'x'}` }),
+  async (req, res) => {
   try {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase no está configurado.' });
     }
 
     let usuarioId = null;
-    const authHeader = req.headers?.authorization || '';
-    if (authHeader.startsWith('Bearer ')) {
+    const tokenSesion = leerTokenSesion(req);
+    if (tokenSesion) {
       try {
-        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const decoded = jwt.verify(tokenSesion, JWT_SECRET);
         usuarioId = decoded?.id ?? null;
       } catch (_) { usuarioId = null; }
     }
@@ -829,7 +958,7 @@ app.get('/api/publicidad', async (req, res) => {
 
     if (error) {
       console.error('Error leyendo publicidad desde Supabase:', error.message || error);
-      return res.status(500).json({ error: 'No se pudieron cargar las publicidades', details: error.message || 'unknown' });
+      return res.status(500).json({ error: 'No se pudieron cargar las publicidades.' });
     }
 
     const lista = (data || []).map((pub) => ({
@@ -852,16 +981,24 @@ app.post('/api/publicidad', requireAuth, async (req, res) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase no está configurado.' });
     }
-const { titulo, imagen, enlace } = req.body || {};
+    const { titulo, imagen, enlace } = req.body || {};
     if (!imagen) {
       return res.status(400).json({ error: 'La imagen es obligatoria.' });
+    }
+    const imagenValida = validarImagen(imagen);
+    const enlaceValido = validarEnlace(enlace);
+    if (!imagenValida.ok || !imagenValida.value) {
+      return res.status(400).json({ error: 'La imagen no es una URL válida.' });
+    }
+    if (!enlaceValido.ok) {
+      return res.status(400).json({ error: 'El enlace no es una URL válida.' });
     }
 
     const nuevo = {
       usuario_id: req.user.id,
       titulo: titulo ? sanitizeText(titulo) : 'Publicidad',
-      imagen,
-      enlace: enlace ? sanitizeText(enlace) : null
+      imagen: imagenValida.value,
+      enlace: enlaceValido.value
     };
 
     const { data, error } = await supabase
@@ -871,7 +1008,7 @@ const { titulo, imagen, enlace } = req.body || {};
 
     if (error) {
       console.error('Error creando publicidad en Supabase:', error.message || error);
-      return res.status(500).json({ error: 'No se pudo publicar la publicidad', details: error.message || 'unknown' });
+      return res.status(500).json({ error: 'No se pudo publicar la publicidad.' });
     }
 
     res.status(201).json({ message: 'Publicidad publicada correctamente', publicidad: data[0] });
@@ -913,7 +1050,7 @@ app.delete('/api/publicidad/:id', requireAuth, async (req, res) => {
 
     if (updErr) {
       console.error('Error desactivando publicidad:', updErr.message || updErr);
-      return res.status(500).json({ error: 'No se pudo desactivar la publicidad', details: updErr.message || 'unknown' });
+      return res.status(500).json({ error: 'No se pudo desactivar la publicidad.' });
     }
 
     res.json({ ok: true, message: 'Publicidad desactivada.' });
@@ -924,12 +1061,23 @@ app.delete('/api/publicidad/:id', requireAuth, async (req, res) => {
 });
 
 // MERCADO PAGO - CREAR PREFERENCIA
-app.post('/api/create-preference', async (req, res) => {
+app.post('/api/create-preference',
+  rateLimit({ windowMs: 15 * 60 * 1000, max: 20, keyFn: (req) => `preference:${req.ip || 'x'}` }),
+  async (req, res) => {
   if (!mpClient) {
     return res.status(503).json({ error: 'Mercado Pago no está configurado. Define MERCADOPAGO_ACCESS_TOKEN en .env' });
   }
 
-  const { titulo, precioUnitario, cantidad, comprador, user_id } = req.body || {};
+  const { titulo, precioUnitario, cantidad, comprador } = req.body || {};
+  // [SEGURIDAD] El user_id NUNCA se toma del cliente: se deriva de la sesión.
+  let usuarioSesionId = null;
+  const tokenSesion = leerTokenSesion(req);
+  if (tokenSesion) {
+    try {
+      const decoded = jwt.verify(tokenSesion, JWT_SECRET);
+      usuarioSesionId = decoded?.id ?? null;
+    } catch (_) { usuarioSesionId = null; }
+  }
   const taller_id = Number(req.body?.taller_id || req.body?.evento_id || req.body?.tallerId || req.body?.id || NaN);
   const tallerIdValido = Number.isInteger(taller_id) && taller_id > 0;
 
@@ -984,7 +1132,7 @@ app.post('/api/create-preference', async (req, res) => {
     let order = null;
     try {
       order = await createOrder({ 
-        user_id: user_id ? Number(user_id) : null, 
+        user_id: usuarioSesionId,
         taller_id: taller_id, 
         cantidad: cantidadFinal, 
         preference_id: null,
@@ -999,7 +1147,7 @@ app.post('/api/create-preference', async (req, res) => {
       const { data: ordenSupabase, error: errSupabase } = await supabase
         .from('ordenes')
         .insert([{
-          user_id: user_id ? Number(user_id) : null,
+          user_id: usuarioSesionId,
           taller_id: taller_id,
           cantidad: cantidadFinal,
           status: 'PENDIENTE',
@@ -1017,12 +1165,14 @@ app.post('/api/create-preference', async (req, res) => {
       throw new Error('No se pudo inicializar la orden en la base de datos.');
     }
 
-    const accessToken = orderAccessToken(order.id);
-    // [SEGURIDAD] A5: la URL de retorno lleva un token temporal firmado (`t`),
-    // no el `at` permanente. `at` solo viaja por JSON (create-preference) y localStorage.
+    // [SEGURIDAD] `at` y `t` son tokens temporales firmados (12h). Ya no se
+    // emite el HMAC permanente; se sigue aceptando solo por retrocompatibilidad.
     const confirmToken = orderConfirmToken(order.id);
+    const accessToken = confirmToken;
 
-    const clientUrl = process.env.CLIENT_URL || `https://${req.get('host')}`;
+    // [SEGURIDAD] Nunca construir URLs de retorno desde el header Host del
+    // cliente (host header injection). Solo se usa la URL de confianza configurada.
+    const clientUrl = baseUrl;
     const webhookUrl = process.env.WEBHOOK_URL || null;
 
     const preference = new Preference(mpClient);
@@ -1287,6 +1437,7 @@ async function enviarQRAlComprador({ orderId = null, tickets = [], token = null,
           created_at TIMESTAMPTZ DEFAULT now()
         )`
       );
+      await pool.query(`ALTER TABLE envios_qr ENABLE ROW LEVEL SECURITY;`);
       await pool.query(
         `INSERT INTO envios_qr (order_id, qr_token, qr_archivo, email_to, titulo_evento) VALUES ($1, $2, NULL, $3, $4)`,
         [orderId ? Number(orderId) : null, tickets[0].token, destino, tituloEvento || null]
@@ -1402,7 +1553,7 @@ app.post('/api/orders/confirm-payment',
         ok: true,
         message: 'La orden ya estaba registrada como PAGADA',
         qr_token: (entradas && entradas[0]) ? entradas[0].token : (order.qr_token || null),
-        at: orderAccessToken(order.id),
+        at: orderConfirmToken(order.id),
         entradas
       });
     }
@@ -1435,7 +1586,7 @@ app.post('/api/orders/confirm-payment',
       });
     }
     const entradas = await entradasConQr(resultado.tickets, order);
-    return res.json({ ok: true, qr_token: resultado.token, at: orderAccessToken(order.id), entradas });
+    return res.json({ ok: true, qr_token: resultado.token, at: orderConfirmToken(order.id), entradas });
   } catch (err) {
     console.error('Error confirmando pago desde frontend:', err);
     return res.status(500).json({ error: 'Error interno procesando la confirmación' });
@@ -1965,7 +2116,7 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-initDb()
+verificarConexion()
   .then(() => {
     const server = app.listen(port, () => {
       console.log(`Servidor corriendo en http://localhost:${port}`);
@@ -1981,20 +2132,15 @@ initDb()
       process.exit(1);
     });
 
-    // [SEGURIDAD] Limpieza diaria de registros_pendientes expirados (DELETE con WHERE,
-    // no masivo). Evita acumulación de intentos de registro sin verificar.
-    const limpiarPendientesExpirados = async () => {
-      if (!pool) return;
-      try {
-        const { rowCount } = await pool.query('DELETE FROM registros_pendientes WHERE expira < $1', [Date.now()]);
-        if (rowCount > 0) console.log(`🧹 Registros pendientes expirados eliminados: ${rowCount}`);
-      } catch (e) {
-        console.warn('No se pudieron limpiar registros pendientes expirados:', e.message);
-      }
-    };
-    cron.schedule('0 4 * * *', limpiarPendientesExpirados);
-    setTimeout(limpiarPendientesExpirados, 30 * 60 * 1000);
+    // [SEGURIDAD] En VPS/local se mantiene la limpieza diaria con node-cron.
+    // En Vercel no se programa aquí: la ejecuta Vercel Cron vía
+    // GET /api/internal/cleanup con CRON_SECRET.
+    if (!process.env.VERCEL) {
+      cron.schedule('0 4 * * *', limpiarDatosExpirados);
+      setTimeout(limpiarDatosExpirados, 30 * 60 * 1000);
+    }
   })
   .catch((err) => {
-    console.error('No se pudo inicializar la base de datos local (usando Supabase por defecto):', err.message || err);
+    console.error('No se pudo conectar a la base de datos al arrancar:', err.message || err);
+    process.exit(1);
   });

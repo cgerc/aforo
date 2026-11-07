@@ -1,15 +1,14 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "server.js",
-      "use": "@vercel/node"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "server.js": {
+      "includeFiles": ["certs/**", "views/**", "public/**"]
     }
-  ],
-  "routes": [
+  },
+  "crons": [
     {
-      "src": "/(.*)",
-      "dest": "server.js"
+      "path": "/api/internal/cleanup",
+      "schedule": "0 8 * * *"
     }
   ]
 }

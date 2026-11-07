@@ -9,14 +9,24 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="manifest" href="/site.webmanifest">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     
     <!-- GUARDIA DE SEGURIDAD DE RUTA -->
     <script>
-        // Si no existe la sesión activa, redirige inmediatamente a home
-        if (!localStorage.getItem('token_ticketera')) {
-            window.location.replace('login.html');
-        }
+        // [SEGURIDAD] Valida la sesión contra el servidor (cookie HttpOnly).
+        (async () => {
+            try {
+                const r = await fetch('/api/auth/me', { credentials: 'same-origin' });
+                if (!r.ok) throw new Error('sin sesión');
+                const data = await r.json();
+                localStorage.setItem('usuario_autenticado', 'true');
+                if (data.usuario) localStorage.setItem('usuario_ticketera', JSON.stringify(data.usuario));
+            } catch (_) {
+                localStorage.removeItem('usuario_autenticado');
+                localStorage.removeItem('token_ticketera');
+                window.location.replace('login.html');
+            }
+        })();
     </script>
    
 </head>
@@ -233,7 +243,7 @@
         </section>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" integrity="sha384-hStSInNIZ8ljtOVrmrgf7zdHMapaLBWoSnPTtF0nzsybp4+LuhDz6sHuEVpWIX8o" crossorigin="anonymous"></script>
     <script>
         let listaEventosLocales = [];
         let qrStream = null;
@@ -304,7 +314,7 @@
         function cerrarSesion() {
             if (confirm("¿Estás seguro de que deseas cerrar sesión y regresar al inicio?")) {
                 // [SEGURIDAD] Limpia también la cookie HttpOnly de sesión en el servidor.
-                try { fetch('/api/auth/logout', { method: 'POST' }).catch(() => {}); } catch (e) {}
+                try { fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {}); } catch (e) {}
                 localStorage.removeItem('usuario_autenticado');
                 localStorage.removeItem('token_ticketera');
                 localStorage.removeItem('usuario_ticketera');
@@ -313,7 +323,8 @@
         }
 
         function encabezadosSesion() {
-            return { Authorization: `Bearer ${localStorage.getItem('token_ticketera')}` };
+            // [SEGURIDAD] La sesión viaja en cookie HttpOnly (mismo origen).
+            return {};
         }
 
         // [SEGURIDAD] A3: escapa texto proveniente de BD/API antes de insertarlo en HTML.
@@ -465,13 +476,13 @@
                     const profImg = ev.profesional_imagen || null;
                     const profNombre = ev.profesional_nombre || 'Sin profesional asignado';
                     const tokenOId = ev.validador_token || ev.id;
-                    const parametro = ev.validador_token ? `token=${ev.validador_token}` : `taller_id=${ev.id}`;
+                    const parametro = ev.validador_token ? `token=${encodeURIComponent(ev.validador_token)}` : `taller_id=${Number(ev.id)}`;
                     const urlValidador = `${window.location.origin}/validador.html?${parametro}`;
 
                     tbody.innerHTML += `
                         <tr class="hover:bg-slate-50 transition">
                             <td class="py-3">
-                                <img src="${flyerImg}" class="w-12 h-12 object-cover rounded-lg border" alt="Flyer">
+                                <img src="${esc(flyerImg)}" class="w-12 h-12 object-cover rounded-lg border" alt="Flyer">
                             </td>
                             <td class="py-3 font-semibold text-gray-900">
                                 ${esc(ev.titulo)}
@@ -480,7 +491,7 @@
                             <td class="py-3">
                                 <div class="flex items-center gap-2">
                                     ${profImg
-                                        ? `<img src="${profImg}" class="w-9 h-9 object-cover rounded-full border border-amber-300" alt="${esc(profNombre)}">`
+                                        ? `<img src="${esc(profImg)}" class="w-9 h-9 object-cover rounded-full border border-amber-300" alt="${esc(profNombre)}">`
                                         : `<div class="w-9 h-9 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center text-xs font-bold text-amber-800">${esc((profNombre || '?').charAt(0).toUpperCase())}</div>`}
                                     <span class="text-xs text-gray-700 font-medium line-clamp-1">${esc(profNombre)}</span>
                                 </div>
@@ -489,20 +500,20 @@
                             <td class="py-3 text-xs text-gray-500">${esc(ev.direccion)} (${esc(ev.comuna)})</td>
                             <td class="py-3 text-center">
                                 <div class="flex items-center justify-center gap-1">
-                                    <button onclick="copiarLinkValidador('${tokenOId}')" class="bg-zinc-800 hover:bg-zinc-900 text-amber-400 font-bold text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 transition shadow cursor-pointer flex items-center gap-1" title="Copiar enlace del validador">
+                                    <button onclick="copiarLinkValidador('${esc(tokenOId)}')" class="bg-zinc-800 hover:bg-zinc-900 text-amber-400 font-bold text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 transition shadow cursor-pointer flex items-center gap-1" title="Copiar enlace del validador">
                                         📋 Copiar Link
                                     </button>
-                                    <a href="${urlValidador}" target="_blank" class="bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold text-xs p-1.5 rounded-lg border border-amber-300 transition" title="Abrir en pestaña nueva">
+                                    <a href="${esc(urlValidador)}" target="_blank" class="bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold text-xs p-1.5 rounded-lg border border-amber-300 transition" title="Abrir en pestaña nueva">
                                         🔗
                                     </a>
                                 </div>
                             </td>
                             <td class="py-3 text-center">
                                 <div class="flex items-center justify-center gap-2">
-                                    <button onclick="prepararEdicion(${ev.id})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
+                                    <button onclick="prepararEdicion(${Number(ev.id)})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
                                         ✏️ Editar
                                     </button>
-                                    <button onclick="eliminarEvento(${ev.id}, '${ev.titulo.replace(/'/g, "\\'")}')" class="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
+                                    <button onclick="eliminarEvento(${Number(ev.id)})" class="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer">
                                         🗑️ Eliminar
                                     </button>
                                 </div>
@@ -515,7 +526,9 @@
             }
         }
 
-        async function eliminarEvento(id, titulo) {
+        async function eliminarEvento(id) {
+            const ev = listaEventosLocales.find((e) => String(e.id) === String(id));
+            const titulo = ev?.titulo || '';
             if (!confirm(`¿Estás seguro de que deseas eliminar el taller "${titulo}"?\nEsta acción no se puede deshacer.`)) {
                 return;
             }
@@ -683,7 +696,7 @@
 
                 contenedor.innerHTML = activas.map(p => `
                     <div class="border rounded-xl overflow-hidden bg-gray-50">
-                        <img src="${p.imagen || ''}" class="w-full aspect-video object-cover object-center" alt="${esc(p.titulo || 'Publicidad')}">
+                        <img src="${esc(p.imagen || '')}" class="w-full aspect-video object-cover object-center" alt="${esc(p.titulo || 'Publicidad')}">
                         <div class="p-3 space-y-2">
                             <p class="text-sm font-bold text-gray-800 truncate">${esc(p.titulo || 'Publicidad')}</p>
                             ${p.enlace ? `<p class="text-xs text-gray-500 truncate">🔗 ${esc(p.enlace)}</p>` : ''}

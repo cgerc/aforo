@@ -1,13 +1,21 @@
 import 'dotenv/config';
 import pkg from 'pg';
-import dns from 'node:dns'; // <--- AGREGAR ESTA LÍNEA
+import dns from 'node:dns';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-dns.setDefaultResultOrder('ipv4first'); // <--- AGREGAR ESTA LÍNEA
+dns.setDefaultResultOrder('ipv4first');
 const { Pool } = pkg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const bundledCaPath = path.join(__dirname, 'certs', 'supabase-prod-ca-2021.crt');
 
 function getConnectionString() {
   const url = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL;
   if (!url) {
+    if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+      throw new Error('DATABASE_URL (o SUPABASE_DATABASE_URL) es obligatoria en producción.');
+    }
     console.warn('⚠️ No se detectó DATABASE_URL ni SUPABASE_DATABASE_URL en las variables de entorno. Usando localhost.');
     return 'postgresql://postgres:postgres@127.0.0.1:5432/aforo';
   }
@@ -19,21 +27,62 @@ function isRemoteConnection(connectionString) {
   return !/localhost|127\.0\.0\.1/.test(connectionString);
 }
 
+function getSslConfig(connectionString) {
+  if (!isRemoteConnection(connectionString)) return false;
+
+  // Escape hatch explícito (no recomendado): mantiene TLS sin verificar el
+  // certificado. Solo para entornos donde el CA no esté disponible.
+  if (process.env.DB_SSL_REJECT_UNAUTHORIZED === 'false') {
+    console.warn('[SEGURIDAD] DB_SSL_REJECT_UNAUTHORIZED=false: la conexión TLS no verifica el certificado del servidor.');
+    return { rejectUnauthorized: false };
+  }
+
+  // Verificación estricta por defecto. DB_SSL_CA puede ser la ruta a un PEM o
+  // el PEM completo; si no se define, se usa el CA público de Supabase incluido.
+  let ca;
+  if (process.env.DB_SSL_CA) {
+    const raw = process.env.DB_SSL_CA;
+    ca = raw.includes('BEGIN CERTIFICATE') ? raw : fs.readFileSync(raw, 'utf8');
+  } else if (fs.existsSync(bundledCaPath)) {
+    ca = fs.readFileSync(bundledCaPath, 'utf8');
+  }
+
+  return ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: true };
+}
+
 const connectionString = getConnectionString();
+
+// En Vercel cada instancia mantiene su propio pool: un límite alto agota las
+// conexiones de Supabase al escalar. En VPS/local se conserva el valor anterior.
+const poolMaxConfigurado = Number(process.env.PG_POOL_MAX);
+const poolMax = Number.isFinite(poolMaxConfigurado) && poolMaxConfigurado > 0
+  ? poolMaxConfigurado
+  : (process.env.VERCEL ? 3 : 10);
 
 const pool = new Pool({
   connectionString,
-  ssl: isRemoteConnection(connectionString)
-    ? { rejectUnauthorized: false }
-    : false,
-  max: 10,                      // Límite máximo de conexiones simultáneas en la piscina
+  ssl: getSslConfig(connectionString),
+  max: poolMax,
   idleTimeoutMillis: 30000,     // Cierra conexiones inactivas después de 30 segundos
-  connectionTimeoutMillis: 2000 // Tiempo máximo para esperar una conexión libre antes de dar timeout
+  connectionTimeoutMillis: 5000 // Tiempo máximo para esperar una conexión libre antes de dar timeout
 });
 
 pool.on('error', (err) => {
   console.error('Error inesperado del pool de PostgreSQL', err);
 });
+
+async function verificarConexion() {
+  const client = await pool.connect();
+  try {
+    await client.query('SELECT 1');
+    const { rows } = await client.query("SELECT to_regclass('public.eventos') AS tabla");
+    if (!rows[0]?.tabla) {
+      throw new Error('El esquema no está inicializado. Ejecuta `npm run migrate` antes de arrancar.');
+    }
+  } finally {
+    client.release();
+  }
+}
 
 async function initDb() {
   const client = await pool.connect();
@@ -145,6 +194,51 @@ async function initDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_entradas_order ON entradas(order_id);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_entradas_uuid ON entradas(ticket_uuid);`);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_entradas_token ON entradas(token);`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        token_hash TEXT PRIMARY KEY,
+        usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
+        expira BIGINT NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(usuario_id);`);
+    // Sin políticas: solo el rol de conexión directa (postgres/service) accede;
+    // PostgREST con anon/authenticated queda bloqueado.
+    await client.query(`ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;`);
+
+    // Rate limiting compartido entre instancias serverless (fallback a memoria).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rate_limits (
+        key TEXT PRIMARY KEY,
+        count INTEGER NOT NULL,
+        reset_at BIGINT NOT NULL
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits(reset_at);`);
+    await client.query(`ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;`);
+    // Tabla creada bajo demanda por el envío de QRs; si ya existe, se protege.
+    await client.query(`ALTER TABLE IF EXISTS envios_qr ENABLE ROW LEVEL SECURITY;`);
+
+    // [SEGURIDAD] Aviso si las tablas sensibles no tienen RLS habilitado en
+    // Supabase. El backend usa service_role (bypassa RLS), pero una anon key
+    // expuesta podría leer/escribir si RLS está desactivado.
+    try {
+      const rls = await client.query(`
+        SELECT relname, relrowsecurity
+        FROM pg_class
+        WHERE relkind = 'r'
+          AND relname IN ('usuarios','eventos','ordenes','entradas','envios_qr','publicidad','registros_pendientes','password_resets','rate_limits')
+      `);
+      const sinRls = rls.rows.filter((r) => !r.relrowsecurity).map((r) => r.relname);
+      if (sinRls.length > 0) {
+        console.warn(`⚠️ [SEGURIDAD] RLS desactivado en: ${sinRls.join(', ')}. Aplica scripts/rls-guia.sql en Supabase.`);
+      }
+    } catch (e) {
+      console.warn('No se pudo verificar RLS:', e.message);
+    }
 
     console.log('✅ Base de datos lista y tablas preparadas');
   } catch (err) {
@@ -429,6 +523,7 @@ async function markTicketUsedAtomic(ticketUuid) {
 export {
   pool,
   initDb,
+  verificarConexion,
   sanitizeText,
   createOrder,
   getOrderById,

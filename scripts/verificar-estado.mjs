@@ -29,7 +29,7 @@ console.log((a.includes('crearSlideBannerTalleres') ? 'FALTA: banner TODAVIA exi
 console.log((/idx === 0 \? 'opacity-100 z-10'/.test(a) ? 'OK   primer evento activo' : 'FALTA primer evento activo'));
 
 // 4) dashboard: verifico que no exista aun la seccion publicidad (falta crear)
-const d = fs.readFileSync('public/dashboard.html', 'utf8');
+const d = fs.readFileSync('views/dashboard.html', 'utf8');
 console.log((d.includes('agregar publicidad') ? 'OK   seccion publicidad YA existe' : 'PENDIENTE: no existe aun seccion en dashboard'));
 
 // 5) count de lineas

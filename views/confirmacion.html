@@ -8,9 +8,9 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="manifest" href="/site.webmanifest">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <!-- Librería para forzar la descarga del PDF directamente en vez de imprimir -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha384-Yv5O+t3uE3hunW8uyrbpPW3iw6/5/Y7HitWJBLgqfMoA36NogMmy+8wWZMpn3HWc" crossorigin="anonymous"></script>
     <style>
         .pagina-entrada { page-break-before: always; break-before: page; }
     </style>
@@ -141,7 +141,7 @@
                     <span class="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${usada ? 'text-red-500 bg-red-50' : 'text-emerald-600 bg-emerald-50'}">
                         Entrada ${total > 1 ? num + ' · ' : ''}${usada ? 'Usada' : 'Vigente'}
                     </span>
-                    <img src="${e.qr_data_url}" alt="Entrada ${num}" class="w-48 h-48 border bg-white rounded-lg shadow-sm my-3"/>
+                    <img src="${esc(e.qr_data_url)}" alt="Entrada ${num}" class="w-48 h-48 border bg-white rounded-lg shadow-sm my-3"/>
                     ${enlaceTicket}
                     <button onclick="descargarPNG('${esc(e.qr_data_url)}','${num}')" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-500 active:scale-95 transition shadow-sm mt-3 cursor-pointer">
                         🖼️ Descargar imagen QR${total > 1 ? ' ' + num : ''}

@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test ./test/seguridad.test.js ./test/ratelimit.test.js"
+    "migrate": "node scripts/migrate.js",
+    "test": "node --test ./test/seguridad.test.js ./test/ratelimit.test.js ./test/validacion.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
@@ -14,7 +15,7 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^4.22.2",
+    "express": "^4.22.3",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mercadopago": "^2.13.0",
@@ -22,5 +23,11 @@
     "pg": "^8.22.0",
     "qrcode": "^1.5.3",
     "resend": "^6.18.1"
+  },
+  "overrides": {
+    "proxy-addr": "^2.0.8",
+    "body-parser": "^1.20.9",
+    "qs": "^6.16.2",
+    "uuid": "^11.1.1"
   }
 }

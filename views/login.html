@@ -8,7 +8,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="manifest" href="/site.webmanifest">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
    
 </head>
 <body class="bg-zinc-950 text-white flex items-center justify-center min-h-screen px-4 font-sans">
@@ -110,7 +110,7 @@
 
     <!-- CONTROLADOR DE LA LÓGICA E INTERFAZ -->
     <script>
-        if (localStorage.getItem('token_ticketera')) {
+        if (localStorage.getItem('usuario_autenticado')) {
             window.location.replace('dashboard.html');
         }
 
@@ -193,11 +193,39 @@
             executeAuth('/api/auth/resend-code', { email: pendingEmail }, false, false, true);
         });
 
-        // Olvidé mi Contraseña
-        btnForgot.addEventListener('click', () => {
+        // Olvidé mi Contraseña (código de recuperación real)
+        btnForgot.addEventListener('click', async () => {
             errorDiv.classList.add('hidden');
-            successDiv.classList.remove('hidden');
-            successDiv.innerText = 'Se envió un enlace para reestablecer la clave a tu correo.';
+            successDiv.classList.add('hidden');
+            const emailInicial = document.getElementById('login-email').value.trim();
+            const email = prompt('Ingresa tu correo para enviarte un código de recuperación:', emailInicial);
+            if (!email) return;
+            try {
+                const r = await fetch('/api/auth/forgot-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const data = await r.json().catch(() => ({}));
+                successDiv.innerText = data.message || 'Si el correo está registrado, enviamos un código.';
+                successDiv.classList.remove('hidden');
+
+                const codigo = prompt('Ingresa el código de 6 dígitos que recibiste por correo:');
+                if (!codigo) return;
+                const nueva = prompt('Ingresa tu nueva contraseña (mínimo 8 caracteres):');
+                if (!nueva) return;
+
+                const r2 = await fetch('/api/auth/reset-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, codigo, password: nueva })
+                });
+                const data2 = await r2.json().catch(() => ({}));
+                if (!r2.ok) throw new Error(data2.error || 'No se pudo restablecer la contraseña.');
+                successDiv.innerText = data2.message || 'Contraseña actualizada. Ya puedes iniciar sesión.';
+            } catch (err) {
+                showError(err.message);
+            }
         });
 
         // Submit del Formulario
@@ -230,8 +258,8 @@
                     return;
                 }
 
-                if (password.length < 6) {
-                    showError('La contraseña debe tener al menos 6 caracteres.');
+                if (password.length < 8) {
+                    showError('La contraseña debe tener al menos 8 caracteres.');
                     return;
                 }
 
@@ -307,7 +335,9 @@
                 }
 
                 if (isLogin) {
-                    localStorage.setItem('token_ticketera', data.token);
+                    // [SEGURIDAD] El JWT queda en cookie HttpOnly; aquí solo se
+                    // guarda información no sensible para la interfaz.
+                    localStorage.removeItem('token_ticketera');
                     localStorage.setItem('usuario_autenticado', 'true');
                     localStorage.setItem('usuario_ticketera', JSON.stringify(data.usuario));
                     window.location.href = 'dashboard.html';

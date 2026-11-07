@@ -1,7 +1,8 @@
 -- ============================================================
 -- ViveTicket · Guía de seguridad RLS (Supabase)
 -- Tablas en uso: usuarios, eventos, registros_pendientes,
---                ordenes, entradas, envios_qr, publicidad
+--                ordenes, entradas, envios_qr, publicidad,
+--                password_resets, rate_limits
 --
 -- POR QUÉ ES SEGURO EN ESTA APP:
 --   El frontend NO habla con Supabase directamente (no hay
@@ -21,7 +22,7 @@ SELECT tablename,
        rowsecurity AS rls_activado
 FROM pg_tables
 WHERE schemaname = 'public'
-  AND tablename IN ('usuarios','eventos','registros_pendientes','ordenes','entradas','envios_qr','publicidad')
+  AND tablename IN ('usuarios','eventos','registros_pendientes','ordenes','entradas','envios_qr','publicidad','password_resets','rate_limits')
 ORDER BY rowsecurity ASC, tablename;
 
 -- Vista alternativa (incluye columna "forzado"):
@@ -44,6 +45,8 @@ ALTER TABLE public.ordenes              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.entradas             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.envios_qr            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.publicidad           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.password_resets      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rate_limits          ENABLE ROW LEVEL SECURITY;
 
 -- Opcional: forzar RLS también para el dueño de la tabla.
 -- NO afecta a service_role (sigue entrando).

@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "server.js": {
-      "includeFiles": ["certs/**", "views/**", "public/**"]
+      "includeFiles": "{certs,views,public}/**"
     }
   },
   "crons": [
